@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie } from "recharts";
 
-const SUBGRAPH_URL = import.meta.env.VITE_SUBGRAPH_URL;
+const API_KEY = import.meta.env.VITE_GRAPH_API_KEY;
+const LIVEPEER_SUBGRAPH_ID = import.meta.env.VITE_LIVEPEER_SUBGRAPH_ID;
+const ENS_SUBGRAPH_ID = import.meta.env.VITE_ENS_SUBGRAPH_ID;
+const graphUrl = (id) => `https://gateway.thegraph.com/api/${API_KEY}/subgraphs/id/${id}`;
 
 const QUERIES = {
   delegator: (id) => `{
@@ -39,8 +42,8 @@ const QUERIES = {
   }`,
 };
 
-async function gqlFetch(query) {
-  const res = await fetch(SUBGRAPH_URL, {
+async function gqlFetch(query, subgraphId = LIVEPEER_SUBGRAPH_ID) {
+  const res = await fetch(graphUrl(subgraphId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
@@ -48,6 +51,13 @@ async function gqlFetch(query) {
   const json = await res.json();
   if (json.errors) throw new Error(json.errors[0].message);
   return json.data;
+}
+
+async function resolveENS(name) {
+  const data = await gqlFetch(`{ domains(where: { name: "${name.toLowerCase()}" }) { resolvedAddress { id } } }`, ENS_SUBGRAPH_ID);
+  const addr = data?.domains?.[0]?.resolvedAddress?.id;
+  if (!addr) throw new Error(`Could not resolve ENS name "${name}". Make sure it's a valid .eth name.`);
+  return addr;
 }
 
 const fmtAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—";
@@ -129,15 +139,21 @@ export default function LivepeerDashboard() {
 
   // ── Load data ──
   async function loadDelegator(address) {
-    const addr = address.toLowerCase().trim();
-    if (!/^0x[a-f0-9]{40}$/.test(addr)) {
-      setError("Please enter a valid Ethereum address (0x...)");
-      return;
-    }
+    const input = address.trim();
+    if (!input) return;
     setLoading(true);
     setError("");
     setData(null);
     try {
+      let addr;
+      if (input.endsWith(".eth")) {
+        addr = await resolveENS(input);
+      } else {
+        addr = input.toLowerCase();
+        if (!/^0x[a-f0-9]{40}$/.test(addr)) {
+          throw new Error("Please enter a valid Ethereum address (0x...) or ENS name (.eth)");
+        }
+      }
       const [delData, earnData, evtData] = await Promise.all([
         gqlFetch(QUERIES.delegator(addr)),
         gqlFetch(QUERIES.earnings(addr)),
@@ -276,7 +292,7 @@ export default function LivepeerDashboard() {
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && loadDelegator(inputVal)}
-              placeholder="Enter delegator wallet address (0x...)"
+              placeholder="Enter wallet address (0x...) or ENS name (.eth)"
               style={{
                 flex: 1, minWidth: 240, padding: "12px 16px", borderRadius: 10,
                 background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
