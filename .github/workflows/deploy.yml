@@ -26,7 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          VITE_SUBGRAPH_URL: ${{ secrets.VITE_SUBGRAPH_URL }}
+          VITE_GRAPH_API_KEY: ${{ secrets.VITE_GRAPH_API_KEY }}
+          VITE_LIVEPEER_SUBGRAPH_ID: ${{ secrets.VITE_LIVEPEER_SUBGRAPH_ID }}
+          VITE_ENS_SUBGRAPH_ID: ${{ secrets.VITE_ENS_SUBGRAPH_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
