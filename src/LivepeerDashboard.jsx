@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie } from "recharts";
 
-const SUBGRAPH_URL = "https://gateway.thegraph.com/api/subgraphs/id/***REMOVED***";
+const SUBGRAPH_URL = import.meta.env.VITE_SUBGRAPH_URL;
 
 const QUERIES = {
   delegator: (id) => `{
