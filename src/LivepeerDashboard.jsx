@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, ScatterChart, Scatter } from "recharts";
+import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, ScatterChart, Scatter, LineChart, Line } from "recharts";
 
 const API_KEY = import.meta.env.VITE_GRAPH_API_KEY;
 const LIVEPEER_SUBGRAPH_ID = import.meta.env.VITE_LIVEPEER_SUBGRAPH_ID;
@@ -72,6 +72,37 @@ async function resolveENS(name) {
   const addr = data?.domains?.[0]?.resolvedAddress?.id;
   if (!addr) throw new Error(`Could not resolve ENS name "${name}". Make sure it's a valid .eth name.`);
   return addr;
+}
+
+async function batchResolveENS(addresses) {
+  const names = {};
+  try {
+    const addrList = addresses.map((a) => `"${a.toLowerCase()}"`).join(",");
+    const data = await gqlFetch(`{ domains(where: { resolvedAddress_in: [${addrList}] }, first: 1000) { name resolvedAddress { id } } }`, ENS_SUBGRAPH_ID);
+    (data?.domains || []).forEach((d) => {
+      if (d.name && d.resolvedAddress?.id) {
+        const addr = d.resolvedAddress.id.toLowerCase();
+        if (!names[addr] || d.name.length < names[addr].length) names[addr] = d.name;
+      }
+    });
+  } catch (e) { /* ENS resolution is best-effort */ }
+  return names;
+}
+
+function exportCSV(orchs, ensNames, simStake) {
+  const headers = ["Orchestrator", "ENS Name", "Reward APY %", "30d ETH Fees", "ETH/LPT/yr", "Reward Cut %", "Fee Share %", "Total Stake", "Reward Calling", "Est LPT/yr", "Est ETH/yr"];
+  const rows = orchs.map((o) => [
+    o.id, ensNames[o.id] || "", o.rewardAPY.toFixed(2), o.eth30d.toFixed(4),
+    o.ethYieldPerLPT.toFixed(6), (o.rewardCut / 10000).toFixed(2), (o.feeShare / 10000).toFixed(2),
+    o.stake.toFixed(0), o.callingReward ? "Yes" : "No",
+    (simStake * o.rewardAPY / 100).toFixed(2), (simStake * o.ethYieldPerLPT).toFixed(6),
+  ]);
+  const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "livepeer-orchestrators.csv"; a.click();
+  URL.revokeObjectURL(url);
 }
 
 const fmtAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—";
@@ -154,6 +185,17 @@ export default function LivepeerDashboard() {
   const [orchLoading, setOrchLoading] = useState(false);
   const [orchFilter, setOrchFilter] = useState("working");
   const [orchSort, setOrchSort] = useState({ col: "rewardAPY", dir: "desc" });
+  const [ensNames, setEnsNames] = useState({});
+  const [protocolData, setProtocolData] = useState(null);
+  const [simStake, setSimStake] = useState(0);
+  const [simCustom, setSimCustom] = useState(false);
+
+  // ── URL param auto-load ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const addr = params.get("address") || params.get("wallet");
+    if (addr) { setInputVal(addr); loadDelegator(addr); }
+  }, []);
 
   // ── Load data ──
   async function loadDelegator(address) {
@@ -244,6 +286,12 @@ export default function LivepeerDashboard() {
       setWallet(addr);
       setTab("dash");
       setShow(false);
+      setSimStake(Number(del.bondedAmount));
+      setSimCustom(false);
+      // Sync URL for sharing
+      const url = new URL(window.location);
+      url.searchParams.set("address", addr);
+      window.history.replaceState({}, "", url);
       setTimeout(() => setShow(true), 50);
     } catch (err) {
       setError(err.message);
@@ -265,6 +313,15 @@ export default function LivepeerDashboard() {
       const mintable = Number(protocol.currentRound.mintableTokens);
       const totalActive = Number(protocol.totalActiveStake);
       const currentRoundId = protocol.currentRound.id;
+
+      setProtocolData({
+        inflation: Number(protocol.inflation),
+        totalActiveStake: totalActive,
+        totalSupply: Number(protocol.totalSupply),
+        participationRate: Number(protocol.participationRate),
+        currentRound: currentRoundId,
+        lptPriceEth: Number(protocol.lptPriceEth),
+      });
 
       const orchs = tData.transcoders.map((t) => {
         const stake = Number(t.totalStake);
@@ -296,9 +353,39 @@ export default function LivepeerDashboard() {
           isWorking: eth30d > 0,
           lastRewardRound: t.lastRewardRound?.id,
           callingReward: t.lastRewardRound?.id === currentRoundId,
+          sparkline: null,
         };
       });
       setOrchData(orchs);
+
+      // Fetch ENS names in background (best-effort)
+      const addresses = orchs.map((o) => o.id);
+      batchResolveENS(addresses).then((names) => setEnsNames(names));
+
+      // Fetch sparkline data in background for working orchestrators
+      const workingIds = orchs.filter((o) => o.isWorking).map((o) => `"${o.id}"`);
+      if (workingIds.length > 0) {
+        const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
+        const dayStart = Math.floor(thirtyDaysAgo / 86400);
+        gqlFetch(`{
+          transcoderDays(where: { transcoder_in: [${workingIds.join(",")}], date_gte: ${dayStart} }, first: 1000, orderBy: date, orderDirection: asc) {
+            transcoder { id }
+            date
+            volumeETH
+          }
+        }`).then((sparkData) => {
+          const byOrch = {};
+          (sparkData?.transcoderDays || []).forEach((d) => {
+            const id = d.transcoder.id;
+            if (!byOrch[id]) byOrch[id] = [];
+            byOrch[id].push({ d: Number(d.date), v: Number(d.volumeETH) });
+          });
+          setOrchData((prev) => prev ? prev.map((o) => ({
+            ...o,
+            sparkline: byOrch[o.id] || null,
+          })) : prev);
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error("Failed to load orchestrators:", err);
     } finally {
@@ -340,6 +427,7 @@ export default function LivepeerDashboard() {
 
   // ── Compare tab derived data ──
   const currentOrchId = data?.delegate?.id?.toLowerCase();
+  const effectiveStake = simCustom ? simStake : bondedAmount;
   const filteredOrchs = (orchData || [])
     .filter((o) => orchFilter === "all" || o.isWorking)
     .sort((a, b) => {
@@ -348,6 +436,7 @@ export default function LivepeerDashboard() {
     });
   const currentOrchRank = filteredOrchs.findIndex((o) => o.id === currentOrchId) + 1;
   const workingCount = (orchData || []).filter((o) => o.isWorking).length;
+  const orchDisplay = (id) => ensNames[id] || fmtAddr(id);
 
   const evtColors = { bond: "#00e88c", claim: "#64a0ff", unbond: "#ff5c5c", rebond: "#ffb84d", redelegate: "#c77dff", withdraw: "#ff5c5c", withdrawFees: "#c77dff" };
 
@@ -673,19 +762,48 @@ export default function LivepeerDashboard() {
 
                 {orchData && (
                   <>
+                    {/* Protocol stats banner */}
+                    {protocolData && (
+                      <GlassCard style={{ padding: "16px 24px", marginBottom: 12, ...fadeStyle(0) }}>
+                        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
+                          {[
+                            { label: "Round", value: `#${protocolData.currentRound}`, color: "rgba(255,255,255,0.6)" },
+                            { label: "Inflation", value: `${(protocolData.inflation / 10000000).toFixed(4)}%/round`, color: "#ffb84d" },
+                            { label: "Participation", value: `${(protocolData.participationRate * 100).toFixed(1)}%`, color: "#00e88c" },
+                            { label: "Total Active Stake", value: `${fmtN(protocolData.totalActiveStake, 0)} LPT`, color: "#64a0ff" },
+                            { label: "LPT/ETH", value: fmtN(protocolData.lptPriceEth, 6), color: "#c77dff" },
+                          ].map((s) => (
+                            <div key={s.label} style={{ textAlign: "center" }}>
+                              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.label}</div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 2 }}>{s.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </GlassCard>
+                    )}
+
                     {/* Summary callout */}
                     <GlassCard style={{ padding: "20px 24px", marginBottom: 16, ...fadeStyle(50) }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Your Orchestrator</div>
                           <div style={{ fontSize: 14, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.6)" }}>
-                            {fmtAddr(currentOrchId || "")}
+                            {orchDisplay(currentOrchId || "")}
                             {currentOrchRank > 0 && (
                               <span style={{ marginLeft: 12, fontSize: 12, color: "#00e88c", fontWeight: 700 }}>
                                 Rank #{currentOrchRank} of {filteredOrchs.length} {orchFilter === "working" ? "working" : "active"}
                               </span>
                             )}
                           </div>
+                          {/* Share URL */}
+                          {wallet && (
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(window.location.href); }}
+                              style={{ marginTop: 6, padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "rgba(255,255,255,0.3)", fontSize: 9, cursor: "pointer", fontWeight: 600, letterSpacing: "0.04em" }}
+                            >
+                              Copy share link
+                            </button>
+                          )}
                         </div>
                         <div style={{ display: "flex", gap: 16 }}>
                           <div style={{ textAlign: "center" }}>
@@ -700,10 +818,40 @@ export default function LivepeerDashboard() {
                       </div>
                     </GlassCard>
 
-                    {/* Filter chips */}
-                    <div style={{ display: "flex", gap: 6, marginBottom: 16, ...fadeStyle(100) }}>
+                    {/* Filter chips + simulator + CSV export */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center", ...fadeStyle(100) }}>
                       <ChipTab label={`Working (${workingCount})`} active={orchFilter === "working"} onClick={() => setOrchFilter("working")} color="#00e88c" />
                       <ChipTab label={`All Active (${orchData.length})`} active={orchFilter === "all"} onClick={() => setOrchFilter("all")} color="#64a0ff" />
+                      <div style={{ flex: 1 }} />
+                      {/* Simulator */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Simulate:</span>
+                        <input
+                          type="number"
+                          value={simCustom ? simStake : bondedAmount}
+                          onChange={(e) => { setSimStake(Number(e.target.value) || 0); setSimCustom(true); }}
+                          onFocus={() => { if (!simCustom) { setSimStake(bondedAmount); setSimCustom(true); } }}
+                          style={{
+                            width: 90, padding: "4px 8px", borderRadius: 6,
+                            background: "rgba(255,255,255,0.04)", border: simCustom ? "1px solid rgba(255,184,77,0.3)" : "1px solid rgba(255,255,255,0.08)",
+                            color: simCustom ? "#ffb84d" : "rgba(255,255,255,0.5)", fontSize: 11, fontFamily: "'Space Mono', monospace",
+                            outline: "none", textAlign: "right",
+                          }}
+                        />
+                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)" }}>LPT</span>
+                        {simCustom && (
+                          <button onClick={() => { setSimCustom(false); setSimStake(bondedAmount); }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "rgba(255,255,255,0.3)", fontSize: 9, cursor: "pointer" }}>
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      {/* CSV Export */}
+                      <button
+                        onClick={() => exportCSV(filteredOrchs, ensNames, effectiveStake)}
+                        style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "rgba(255,255,255,0.3)", fontSize: 9, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase" }}
+                      >
+                        Export CSV
+                      </button>
                     </div>
 
                     {/* Scatter plot: APY vs ETH yield */}
@@ -739,23 +887,24 @@ export default function LivepeerDashboard() {
                               const d = payload[0]?.payload;
                               if (!d) return null;
                               const isCurrent = d.id === currentOrchId;
+                              const stk = effectiveStake;
                               return (
-                                <div style={{ background: "rgba(6,6,14,0.95)", border: `1px solid ${isCurrent ? "rgba(0,232,140,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: 10, padding: "12px 16px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 260 }}>
-                                  <div style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? "#00e88c" : "#64a0ff", marginBottom: 6, fontFamily: "'Space Mono', monospace" }}>
-                                    {fmtAddr(d.id)} {isCurrent ? " (yours)" : ""}
+                                <div style={{ background: "rgba(6,6,14,0.95)", border: `1px solid ${isCurrent ? "rgba(0,232,140,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: 10, padding: "12px 16px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 280 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? "#00e88c" : "#64a0ff", marginBottom: 2, fontFamily: "'Space Mono', monospace" }}>
+                                    {orchDisplay(d.id)} {isCurrent ? " (yours)" : ""}
                                   </div>
+                                  {ensNames[d.id] && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", marginBottom: 6, fontFamily: "'Space Mono', monospace" }}>{fmtAddr(d.id)}</div>}
                                   <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.8 }}>
                                     <div>Reward APY: <span style={{ color: "#fff", fontWeight: 700 }}>{d.rewardAPY.toFixed(2)}%</span></div>
                                     <div>ETH/LPT/yr: <span style={{ color: "#c77dff", fontWeight: 700 }}>{d.ethYieldPerLPT.toFixed(6)}</span></div>
-                                    <div>Reward Cut: {(d.rewardCut / 10000).toFixed(2)}%</div>
-                                    <div>Fee Share: {(d.feeShare / 10000).toFixed(2)}%</div>
-                                    <div>Stake: {fmtN(d.stake)} LPT</div>
-                                    <div>30d Fees: {fmtN(d.eth30d, 4)} ETH</div>
-                                    {bondedAmount > 0 && (
+                                    <div>Reward Cut: {(d.rewardCut / 10000).toFixed(2)}% · Fee Share: {(d.feeShare / 10000).toFixed(2)}%</div>
+                                    <div>Stake: {fmtN(d.stake)} LPT · 30d Fees: {fmtN(d.eth30d, 4)} ETH</div>
+                                    <div>Calling reward: <span style={{ color: d.callingReward ? "#00e88c" : "#ff5c5c" }}>{d.callingReward ? "Yes" : "No"}</span></div>
+                                    {stk > 0 && (
                                       <>
-                                        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 6, paddingTop: 6, fontSize: 10, color: "rgba(255,255,255,0.3)" }}>With your {fmtN(bondedAmount)} LPT:</div>
-                                        <div>Est. LPT/yr: <span style={{ color: "#00e88c" }}>{fmtN(bondedAmount * d.rewardAPY / 100)}</span></div>
-                                        <div>Est. ETH/yr: <span style={{ color: "#c77dff" }}>{(bondedAmount * d.ethYieldPerLPT).toFixed(6)}</span></div>
+                                        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 6, paddingTop: 6, fontSize: 10, color: "rgba(255,255,255,0.3)" }}>With {fmtN(stk)} LPT{simCustom ? " (simulated)" : ""}:</div>
+                                        <div>Est. LPT/yr: <span style={{ color: "#00e88c" }}>{fmtN(stk * d.rewardAPY / 100)}</span></div>
+                                        <div>Est. ETH/yr: <span style={{ color: "#c77dff" }}>{(stk * d.ethYieldPerLPT).toFixed(6)}</span></div>
                                       </>
                                     )}
                                   </div>
@@ -789,10 +938,11 @@ export default function LivepeerDashboard() {
                     <GlassCard style={{ padding: "24px 28px", ...fadeStyle(250) }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
                         Orchestrator Leaderboard — {filteredOrchs.length} orchestrators
+                        {simCustom && <span style={{ color: "#ffb84d", marginLeft: 8 }}>· Simulating {fmtN(simStake, 0)} LPT</span>}
                       </div>
-                      <div style={{ overflowX: "auto" }}>
+                      <div style={{ overflowX: "auto", maxHeight: 600, overflowY: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
-                          <thead>
+                          <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "rgba(6,6,14,0.98)", backdropFilter: "blur(8px)" }}>
                             <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
                               {[
                                 { col: "rank", label: "#", align: "center" },
@@ -803,25 +953,29 @@ export default function LivepeerDashboard() {
                                 { col: "rewardCut", label: "Reward Cut", align: "right" },
                                 { col: "feeShare", label: "Fee Share", align: "right" },
                                 { col: "stake", label: "Total Stake", align: "right" },
-                                ...(bondedAmount > 0 ? [
+                                { col: "sparkline", label: "30d Trend", align: "center" },
+                                ...(effectiveStake > 0 ? [
                                   { col: "estLPT", label: "Est. LPT/yr", align: "right" },
                                   { col: "estETH", label: "Est. ETH/yr", align: "right" },
                                 ] : []),
-                              ].map((h) => (
-                                <th
-                                  key={h.col}
-                                  onClick={() => h.col !== "rank" && h.col !== "id" && h.col !== "estLPT" && h.col !== "estETH" && setOrchSort((s) => ({ col: h.col, dir: s.col === h.col && s.dir === "desc" ? "asc" : "desc" }))}
-                                  style={{
-                                    padding: "8px 10px", textAlign: h.align,
-                                    color: orchSort.col === h.col ? "#64a0ff" : "rgba(255,255,255,0.3)",
-                                    fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em",
-                                    cursor: h.col !== "rank" && h.col !== "id" && h.col !== "estLPT" && h.col !== "estETH" ? "pointer" : "default",
-                                    whiteSpace: "nowrap", userSelect: "none",
-                                  }}
-                                >
-                                  {h.label}{orchSort.col === h.col ? (orchSort.dir === "desc" ? " ↓" : " ↑") : ""}
-                                </th>
-                              ))}
+                              ].map((h) => {
+                                const sortable = !["rank", "id", "estLPT", "estETH", "sparkline"].includes(h.col);
+                                return (
+                                  <th
+                                    key={h.col}
+                                    onClick={() => sortable && setOrchSort((s) => ({ col: h.col, dir: s.col === h.col && s.dir === "desc" ? "asc" : "desc" }))}
+                                    style={{
+                                      padding: "8px 10px", textAlign: h.align,
+                                      color: orchSort.col === h.col ? "#64a0ff" : "rgba(255,255,255,0.3)",
+                                      fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em",
+                                      cursor: sortable ? "pointer" : "default",
+                                      whiteSpace: "nowrap", userSelect: "none",
+                                    }}
+                                  >
+                                    {h.label}{orchSort.col === h.col ? (orchSort.dir === "desc" ? " ↓" : " ↑") : ""}
+                                  </th>
+                                );
+                              })}
                             </tr>
                           </thead>
                           <tbody>
@@ -838,9 +992,13 @@ export default function LivepeerDashboard() {
                                 >
                                   <td style={{ padding: "12px 10px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{i + 1}</td>
                                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>
-                                    <span style={{ color: isCurrent ? "#00e88c" : "rgba(255,255,255,0.5)" }}>{fmtAddr(o.id)}</span>
+                                    <span style={{ color: isCurrent ? "#00e88c" : ensNames[o.id] ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.5)" }}>{orchDisplay(o.id)}</span>
                                     {isCurrent && <span style={{ marginLeft: 8, fontSize: 8, fontWeight: 700, color: "#00e88c", background: "rgba(0,232,140,0.15)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>yours</span>}
                                     {!o.isWorking && <span style={{ marginLeft: 6, fontSize: 8, color: "rgba(255,255,255,0.2)" }}>idle</span>}
+                                    {/* Reward calling indicator */}
+                                    <span style={{ marginLeft: 6, fontSize: 7, color: o.callingReward ? "#00e88c" : "#ff5c5c", verticalAlign: "middle" }} title={o.callingReward ? "Calling reward this round" : "Not calling reward"}>
+                                      {o.callingReward ? "●" : "○"}
+                                    </span>
                                   </td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>{o.rewardAPY.toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: o.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)" }}>{o.eth30d > 0 ? fmtN(o.eth30d, 4) : "0"}</td>
@@ -848,10 +1006,20 @@ export default function LivepeerDashboard() {
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.rewardCut / 10000).toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.feeShare / 10000).toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{fmtN(o.stake, 0)}</td>
-                                  {bondedAmount > 0 && (
+                                  {/* Sparkline */}
+                                  <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                                    {o.sparkline && o.sparkline.length > 1 ? (
+                                      <LineChart width={70} height={28} data={o.sparkline}>
+                                        <Line type="monotone" dataKey="v" stroke={o.sparkline[o.sparkline.length - 1].v >= o.sparkline[0].v ? "#00e88c" : "#ff5c5c"} strokeWidth={1.5} dot={false} />
+                                      </LineChart>
+                                    ) : (
+                                      <span style={{ fontSize: 9, color: "rgba(255,255,255,0.1)" }}>—</span>
+                                    )}
+                                  </td>
+                                  {effectiveStake > 0 && (
                                     <>
-                                      <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(0,232,140,0.6)", fontWeight: 600 }}>{fmtN(bondedAmount * o.rewardAPY / 100)}</td>
-                                      <td style={{ padding: "12px 10px", textAlign: "right", color: o.ethYieldPerLPT > 0 ? "rgba(199,125,255,0.6)" : "rgba(255,255,255,0.1)", fontWeight: 600 }}>{o.ethYieldPerLPT > 0 ? (bondedAmount * o.ethYieldPerLPT).toFixed(6) : "—"}</td>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", color: simCustom ? "rgba(255,184,77,0.7)" : "rgba(0,232,140,0.6)", fontWeight: 600 }}>{fmtN(effectiveStake * o.rewardAPY / 100)}</td>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", color: o.ethYieldPerLPT > 0 ? (simCustom ? "rgba(255,184,77,0.6)" : "rgba(199,125,255,0.6)") : "rgba(255,255,255,0.1)", fontWeight: 600 }}>{o.ethYieldPerLPT > 0 ? (effectiveStake * o.ethYieldPerLPT).toFixed(6) : "—"}</td>
                                     </>
                                   )}
                                 </tr>
