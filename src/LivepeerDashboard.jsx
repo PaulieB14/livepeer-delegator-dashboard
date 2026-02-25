@@ -451,7 +451,7 @@ export default function LivepeerDashboard() {
       <div style={{ position: "fixed", top: "-30%", left: "-10%", width: "60%", height: "60%", background: "radial-gradient(circle, rgba(0,232,140,0.04) 0%, transparent 70%)", pointerEvents: "none" }} />
       <div style={{ position: "fixed", bottom: "-20%", right: "-10%", width: "50%", height: "50%", background: "radial-gradient(circle, rgba(100,160,255,0.03) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px", position: "relative", zIndex: 1 }}>
+      <div style={{ maxWidth: tab === "compare" ? 1400 : 860, margin: "0 auto", padding: "32px 20px", position: "relative", zIndex: 1, transition: "max-width 0.3s ease" }}>
         {/* Header */}
         <div style={{ marginBottom: 32, textAlign: "center" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.2)", textTransform: "uppercase", letterSpacing: "0.2em", marginBottom: 8 }}>Livepeer Network</div>
