@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie } from "recharts";
+import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, ScatterChart, Scatter } from "recharts";
 
 const API_KEY = import.meta.env.VITE_GRAPH_API_KEY;
 const LIVEPEER_SUBGRAPH_ID = import.meta.env.VITE_LIVEPEER_SUBGRAPH_ID;
@@ -38,6 +38,20 @@ const QUERIES = {
     }
     withdrawFeesEvents(where: { delegator: "${id}" }, orderBy: timestamp, orderDirection: asc, first: 100) {
       id timestamp round { id } amount
+    }
+  }`,
+  transcoders: `{
+    transcoders(where: { active: true }, first: 100, orderBy: totalStake, orderDirection: desc) {
+      id active rewardCut feeShare totalStake
+      thirtyDayVolumeETH ninetyDayVolumeETH totalVolumeETH
+      lastRewardRound { id }
+    }
+  }`,
+  protocol: `{
+    protocol(id: "0") {
+      inflation totalActiveStake totalSupply participationRate
+      currentRound { id mintableTokens }
+      lptPriceEth
     }
   }`,
 };
@@ -136,6 +150,10 @@ export default function LivepeerDashboard() {
   const [tab, setTab] = useState("dash");
   const [metric, setMetric] = useState("lpt");
   const [show, setShow] = useState(false);
+  const [orchData, setOrchData] = useState(null);
+  const [orchLoading, setOrchLoading] = useState(false);
+  const [orchFilter, setOrchFilter] = useState("working");
+  const [orchSort, setOrchSort] = useState({ col: "rewardAPY", dir: "desc" });
 
   // ── Load data ──
   async function loadDelegator(address) {
@@ -144,6 +162,7 @@ export default function LivepeerDashboard() {
     setLoading(true);
     setError("");
     setData(null);
+    setOrchData(null);
     try {
       let addr;
       if (input.endsWith(".eth")) {
@@ -233,6 +252,66 @@ export default function LivepeerDashboard() {
     }
   }
 
+  // ── Load orchestrator comparison data ──
+  async function loadOrchestrators() {
+    if (orchData) return;
+    setOrchLoading(true);
+    try {
+      const [tData, pData] = await Promise.all([
+        gqlFetch(QUERIES.transcoders),
+        gqlFetch(QUERIES.protocol),
+      ]);
+      const protocol = pData.protocol;
+      const mintable = Number(protocol.currentRound.mintableTokens);
+      const totalActive = Number(protocol.totalActiveStake);
+      const currentRoundId = protocol.currentRound.id;
+
+      const orchs = tData.transcoders.map((t) => {
+        const stake = Number(t.totalStake);
+        const rewardCut = Number(t.rewardCut);
+        const feeShare = Number(t.feeShare);
+        const eth30d = Number(t.thirtyDayVolumeETH);
+        const eth90d = Number(t.ninetyDayVolumeETH);
+
+        // Reward APY: per-round delegator yield, annualized
+        const baseYield = totalActive > 0 ? mintable / totalActive : 0;
+        const delegatorYield = baseYield * (1 - rewardCut / 1000000);
+        const rewardAPY = delegatorYield * 365 * 100;
+
+        // ETH yield: delegator share of 30d fees, per LPT staked, annualized
+        const delegatorFees30d = eth30d * (feeShare / 1000000);
+        const ethYieldPerLPT = stake > 0 ? (delegatorFees30d / stake) * 12 : 0;
+
+        return {
+          id: t.id,
+          rewardCut,
+          feeShare,
+          stake,
+          eth30d,
+          eth90d,
+          totalETH: Number(t.totalVolumeETH),
+          rewardAPY,
+          ethYieldPerLPT,
+          delegatorFees30d,
+          isWorking: eth30d > 0,
+          lastRewardRound: t.lastRewardRound?.id,
+          callingReward: t.lastRewardRound?.id === currentRoundId,
+        };
+      });
+      setOrchData(orchs);
+    } catch (err) {
+      console.error("Failed to load orchestrators:", err);
+    } finally {
+      setOrchLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "compare" && data && !orchData && !orchLoading) {
+      loadOrchestrators();
+    }
+  }, [tab, data]);
+
   const fadeStyle = (delay = 0) => ({
     opacity: show ? 1 : 0,
     transform: show ? "translateY(0)" : "translateY(16px)",
@@ -258,6 +337,17 @@ export default function LivepeerDashboard() {
       return { date: fmtM(c.ts), lpt: +cl.toFixed(2), eth: +ce.toFixed(5), claimLPT: c.lpt, claimETH: c.eth };
     });
   }
+
+  // ── Compare tab derived data ──
+  const currentOrchId = data?.delegate?.id?.toLowerCase();
+  const filteredOrchs = (orchData || [])
+    .filter((o) => orchFilter === "all" || o.isWorking)
+    .sort((a, b) => {
+      const mult = orchSort.dir === "desc" ? -1 : 1;
+      return (a[orchSort.col] - b[orchSort.col]) * mult;
+    });
+  const currentOrchRank = filteredOrchs.findIndex((o) => o.id === currentOrchId) + 1;
+  const workingCount = (orchData || []).filter((o) => o.isWorking).length;
 
   const evtColors = { bond: "#00e88c", claim: "#64a0ff", unbond: "#ff5c5c", rebond: "#ffb84d", redelegate: "#c77dff", withdraw: "#ff5c5c", withdrawFees: "#c77dff" };
 
@@ -350,7 +440,7 @@ export default function LivepeerDashboard() {
           <>
             {/* Tab bar */}
             <div style={{ display: "flex", gap: 6, marginBottom: 24, ...fadeStyle(0) }}>
-              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"]].map(([k, l]) => (
+              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["compare", "Compare"]].map(([k, l]) => (
                 <ChipTab key={k} label={l} active={tab === k} onClick={() => setTab(k)} />
               ))}
             </div>
@@ -569,6 +659,211 @@ export default function LivepeerDashboard() {
                   </div>
                 ))}
               </GlassCard>
+            )}
+
+            {/* ═══ COMPARE TAB ═══ */}
+            {tab === "compare" && (
+              <>
+                {orchLoading && (
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>Loading all active orchestrators…</div>
+                    <div style={{ marginTop: 16, width: 40, height: 40, border: "3px solid rgba(100,160,255,0.15)", borderTopColor: "#64a0ff", borderRadius: "50%", margin: "16px auto", animation: "spin 0.8s linear infinite" }} />
+                  </div>
+                )}
+
+                {orchData && (
+                  <>
+                    {/* Summary callout */}
+                    <GlassCard style={{ padding: "20px 24px", marginBottom: 16, ...fadeStyle(50) }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Your Orchestrator</div>
+                          <div style={{ fontSize: 14, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.6)" }}>
+                            {fmtAddr(currentOrchId || "")}
+                            {currentOrchRank > 0 && (
+                              <span style={{ marginLeft: 12, fontSize: 12, color: "#00e88c", fontWeight: 700 }}>
+                                Rank #{currentOrchRank} of {filteredOrchs.length} {orchFilter === "working" ? "working" : "active"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 16 }}>
+                          <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>Working</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: "#00e88c", fontFamily: "'Space Mono', monospace" }}>{workingCount}</div>
+                          </div>
+                          <div style={{ textAlign: "center" }}>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>Total Active</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: "rgba(255,255,255,0.4)", fontFamily: "'Space Mono', monospace" }}>{orchData.length}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </GlassCard>
+
+                    {/* Filter chips */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 16, ...fadeStyle(100) }}>
+                      <ChipTab label={`Working (${workingCount})`} active={orchFilter === "working"} onClick={() => setOrchFilter("working")} color="#00e88c" />
+                      <ChipTab label={`All Active (${orchData.length})`} active={orchFilter === "all"} onClick={() => setOrchFilter("all")} color="#64a0ff" />
+                    </div>
+
+                    {/* Scatter plot: APY vs ETH yield */}
+                    <GlassCard style={{ padding: "24px 28px", marginBottom: 16, ...fadeStyle(150) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+                        Reward APY vs ETH Yield
+                      </div>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 16 }}>
+                        Top-right = best of both worlds. Green dot = your orchestrator.
+                      </div>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
+                          <XAxis
+                            type="number" dataKey="rewardAPY" name="Reward APY"
+                            unit="%"
+                            tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }}
+                            axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
+                            tickLine={false}
+                            label={{ value: "Reward APY %", position: "insideBottom", offset: -5, style: { fill: "rgba(255,255,255,0.2)", fontSize: 10 } }}
+                          />
+                          <YAxis
+                            type="number" dataKey="ethYieldPerLPT" name="ETH/LPT/yr"
+                            tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }}
+                            axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
+                            tickLine={false}
+                            width={60}
+                            tickFormatter={(v) => v.toFixed(4)}
+                            label={{ value: "ETH / LPT / yr", angle: -90, position: "insideLeft", offset: 5, style: { fill: "rgba(255,255,255,0.2)", fontSize: 10 } }}
+                          />
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null;
+                              const d = payload[0]?.payload;
+                              if (!d) return null;
+                              const isCurrent = d.id === currentOrchId;
+                              return (
+                                <div style={{ background: "rgba(6,6,14,0.95)", border: `1px solid ${isCurrent ? "rgba(0,232,140,0.3)" : "rgba(255,255,255,0.08)"}`, borderRadius: 10, padding: "12px 16px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", maxWidth: 260 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? "#00e88c" : "#64a0ff", marginBottom: 6, fontFamily: "'Space Mono', monospace" }}>
+                                    {fmtAddr(d.id)} {isCurrent ? " (yours)" : ""}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", lineHeight: 1.8 }}>
+                                    <div>Reward APY: <span style={{ color: "#fff", fontWeight: 700 }}>{d.rewardAPY.toFixed(2)}%</span></div>
+                                    <div>ETH/LPT/yr: <span style={{ color: "#c77dff", fontWeight: 700 }}>{d.ethYieldPerLPT.toFixed(6)}</span></div>
+                                    <div>Reward Cut: {(d.rewardCut / 10000).toFixed(2)}%</div>
+                                    <div>Fee Share: {(d.feeShare / 10000).toFixed(2)}%</div>
+                                    <div>Stake: {fmtN(d.stake)} LPT</div>
+                                    <div>30d Fees: {fmtN(d.eth30d, 4)} ETH</div>
+                                    {bondedAmount > 0 && (
+                                      <>
+                                        <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 6, paddingTop: 6, fontSize: 10, color: "rgba(255,255,255,0.3)" }}>With your {fmtN(bondedAmount)} LPT:</div>
+                                        <div>Est. LPT/yr: <span style={{ color: "#00e88c" }}>{fmtN(bondedAmount * d.rewardAPY / 100)}</span></div>
+                                        <div>Est. ETH/yr: <span style={{ color: "#c77dff" }}>{(bondedAmount * d.ethYieldPerLPT).toFixed(6)}</span></div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Scatter
+                            data={filteredOrchs}
+                            shape={(props) => {
+                              const { cx, cy, payload } = props;
+                              const isCurrent = payload.id === currentOrchId;
+                              return (
+                                <circle
+                                  cx={cx} cy={cy}
+                                  r={isCurrent ? 8 : 4}
+                                  fill={isCurrent ? "#00e88c" : "#64a0ff"}
+                                  fillOpacity={isCurrent ? 1 : 0.5}
+                                  stroke={isCurrent ? "#00e88c" : "none"}
+                                  strokeWidth={isCurrent ? 2 : 0}
+                                  style={{ cursor: "pointer", filter: isCurrent ? "drop-shadow(0 0 6px rgba(0,232,140,0.5))" : "none" }}
+                                />
+                              );
+                            }}
+                          />
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    </GlassCard>
+
+                    {/* Leaderboard table */}
+                    <GlassCard style={{ padding: "24px 28px", ...fadeStyle(250) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
+                        Orchestrator Leaderboard — {filteredOrchs.length} orchestrators
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              {[
+                                { col: "rank", label: "#", align: "center" },
+                                { col: "id", label: "Orchestrator", align: "left" },
+                                { col: "rewardAPY", label: "Reward APY", align: "right" },
+                                { col: "eth30d", label: "30d ETH Fees", align: "right" },
+                                { col: "ethYieldPerLPT", label: "ETH/LPT/yr", align: "right" },
+                                { col: "rewardCut", label: "Reward Cut", align: "right" },
+                                { col: "feeShare", label: "Fee Share", align: "right" },
+                                { col: "stake", label: "Total Stake", align: "right" },
+                                ...(bondedAmount > 0 ? [
+                                  { col: "estLPT", label: "Est. LPT/yr", align: "right" },
+                                  { col: "estETH", label: "Est. ETH/yr", align: "right" },
+                                ] : []),
+                              ].map((h) => (
+                                <th
+                                  key={h.col}
+                                  onClick={() => h.col !== "rank" && h.col !== "id" && h.col !== "estLPT" && h.col !== "estETH" && setOrchSort((s) => ({ col: h.col, dir: s.col === h.col && s.dir === "desc" ? "asc" : "desc" }))}
+                                  style={{
+                                    padding: "8px 10px", textAlign: h.align,
+                                    color: orchSort.col === h.col ? "#64a0ff" : "rgba(255,255,255,0.3)",
+                                    fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em",
+                                    cursor: h.col !== "rank" && h.col !== "id" && h.col !== "estLPT" && h.col !== "estETH" ? "pointer" : "default",
+                                    whiteSpace: "nowrap", userSelect: "none",
+                                  }}
+                                >
+                                  {h.label}{orchSort.col === h.col ? (orchSort.dir === "desc" ? " ↓" : " ↑") : ""}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredOrchs.map((o, i) => {
+                              const isCurrent = o.id === currentOrchId;
+                              const rowBg = isCurrent ? "rgba(0,232,140,0.06)" : "transparent";
+                              const hoverBg = isCurrent ? "rgba(0,232,140,0.1)" : "rgba(100,160,255,0.03)";
+                              return (
+                                <tr
+                                  key={o.id}
+                                  style={{ borderBottom: "1px solid rgba(255,255,255,0.025)", background: rowBg, transition: "background 0.2s" }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.background = hoverBg)}
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = rowBg)}
+                                >
+                                  <td style={{ padding: "12px 10px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{i + 1}</td>
+                                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>
+                                    <span style={{ color: isCurrent ? "#00e88c" : "rgba(255,255,255,0.5)" }}>{fmtAddr(o.id)}</span>
+                                    {isCurrent && <span style={{ marginLeft: 8, fontSize: 8, fontWeight: 700, color: "#00e88c", background: "rgba(0,232,140,0.15)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>yours</span>}
+                                    {!o.isWorking && <span style={{ marginLeft: 6, fontSize: 8, color: "rgba(255,255,255,0.2)" }}>idle</span>}
+                                  </td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>{o.rewardAPY.toFixed(2)}%</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: o.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)" }}>{o.eth30d > 0 ? fmtN(o.eth30d, 4) : "0"}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: o.ethYieldPerLPT > 0 ? "rgba(199,125,255,0.7)" : "rgba(255,255,255,0.15)", fontSize: 10 }}>{o.ethYieldPerLPT > 0 ? o.ethYieldPerLPT.toFixed(6) : "—"}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.rewardCut / 10000).toFixed(2)}%</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.feeShare / 10000).toFixed(2)}%</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{fmtN(o.stake, 0)}</td>
+                                  {bondedAmount > 0 && (
+                                    <>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(0,232,140,0.6)", fontWeight: 600 }}>{fmtN(bondedAmount * o.rewardAPY / 100)}</td>
+                                      <td style={{ padding: "12px 10px", textAlign: "right", color: o.ethYieldPerLPT > 0 ? "rgba(199,125,255,0.6)" : "rgba(255,255,255,0.1)", fontWeight: 600 }}>{o.ethYieldPerLPT > 0 ? (bondedAmount * o.ethYieldPerLPT).toFixed(6) : "—"}</td>
+                                    </>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </GlassCard>
+                  </>
+                )}
+              </>
             )}
 
             {/* Footer */}
