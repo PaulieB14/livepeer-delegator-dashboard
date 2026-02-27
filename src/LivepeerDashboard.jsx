@@ -132,15 +132,33 @@ function AnimNum({ value, decimals = 2, prefix = "", suffix = "" }) {
 }
 
 // ── Glass card ──
-const GlassCard = ({ children, style = {}, ...props }) => (
-  <div style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", border: "1px solid rgba(255,255,255,0.04)", borderRadius: 16, ...style }} {...props}>
+const GlassCard = ({ children, style = {}, glow, ...props }) => (
+  <div style={{
+    background: "linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)",
+    backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+    border: "1px solid rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    boxShadow: glow
+      ? `0 0 30px ${glow}15, 0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)`
+      : "0 4px 24px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.04)",
+    transition: "border-color 0.3s, box-shadow 0.3s, transform 0.3s",
+    ...style,
+  }} {...props}>
     {children}
   </div>
 );
 
 // ── Chip tab ──
 const ChipTab = ({ label, active, onClick, color = "#00e88c" }) => (
-  <button onClick={onClick} style={{ padding: "6px 16px", borderRadius: 99, border: active ? `1px solid ${color}44` : "1px solid rgba(255,255,255,0.06)", background: active ? `${color}15` : "transparent", color: active ? color : "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", cursor: "pointer", transition: "all 0.2s" }}>
+  <button onClick={onClick} style={{
+    padding: "8px 20px", borderRadius: 99,
+    border: active ? `1px solid ${color}55` : "1px solid rgba(255,255,255,0.06)",
+    background: active ? `${color}18` : "rgba(255,255,255,0.02)",
+    color: active ? color : "rgba(255,255,255,0.4)",
+    fontSize: 11, fontWeight: 700, letterSpacing: "0.04em",
+    cursor: "pointer", transition: "all 0.25s ease",
+    boxShadow: active ? `0 0 16px ${color}20` : "none",
+  }}>
     {label}
   </button>
 );
@@ -149,10 +167,15 @@ const ChipTab = ({ label, active, onClick, color = "#00e88c" }) => (
 const TT = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "rgba(6,6,14,0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "10px 14px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
-      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginBottom: 4 }}>{label}</div>
+    <div style={{
+      background: "rgba(6,6,14,0.97)", border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 12, padding: "12px 16px",
+      boxShadow: "0 12px 40px rgba(0,0,0,0.6), 0 0 20px rgba(0,232,140,0.05)",
+      backdropFilter: "blur(12px)",
+    }}>
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 600 }}>{label}</div>
       {payload.map((p, i) => (
-        <div key={i} style={{ fontSize: 12, fontWeight: 700, color: p.color || "#00e88c", fontFamily: "'Space Mono', monospace" }}>
+        <div key={i} style={{ fontSize: 13, fontWeight: 700, color: p.color || "#00e88c", fontFamily: "'Space Mono', monospace" }}>
           {p.name}: {typeof p.value === "number" ? p.value.toLocaleString("en-US", { maximumFractionDigits: 6 }) : p.value}
         </div>
       ))}
@@ -162,10 +185,11 @@ const TT = ({ active, payload, label }) => {
 
 // ── Stat card ──
 const StatCard = ({ label, children, sub, color = "#00e88c" }) => (
-  <GlassCard style={{ padding: "20px 24px", flex: 1, minWidth: 180 }}>
-    <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>{label}</div>
-    <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: "'Space Mono', monospace", letterSpacing: "-0.02em" }}>{children}</div>
-    {sub && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 4 }}>{sub}</div>}
+  <GlassCard glow={color} style={{ padding: "24px 28px", flex: 1, minWidth: 220, position: "relative", overflow: "hidden" }}>
+    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${color}60, transparent)` }} />
+    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 }}>{label}</div>
+    <div style={{ fontSize: 30, fontWeight: 800, color, fontFamily: "'Space Mono', monospace", letterSpacing: "-0.02em" }}>{children}</div>
+    {sub && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 6 }}>{sub}</div>}
   </GlassCard>
 );
 
@@ -447,25 +471,38 @@ export default function LivepeerDashboard() {
     <div style={{ minHeight: "100vh", background: "#06060e", color: "#fff", fontFamily: "'DM Sans', 'Segoe UI', system-ui, sans-serif", position: "relative", overflow: "hidden" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
 
-      {/* Ambient glow */}
-      <div style={{ position: "fixed", top: "-30%", left: "-10%", width: "60%", height: "60%", background: "radial-gradient(circle, rgba(0,232,140,0.04) 0%, transparent 70%)", pointerEvents: "none" }} />
-      <div style={{ position: "fixed", bottom: "-20%", right: "-10%", width: "50%", height: "50%", background: "radial-gradient(circle, rgba(100,160,255,0.03) 0%, transparent 70%)", pointerEvents: "none" }} />
+      {/* Ambient glow - enhanced multi-layer */}
+      <div style={{ position: "fixed", top: "-30%", left: "-15%", width: "70%", height: "70%", background: "radial-gradient(ellipse, rgba(0,232,140,0.06) 0%, rgba(0,232,140,0.02) 40%, transparent 70%)", pointerEvents: "none" }} />
+      <div style={{ position: "fixed", bottom: "-25%", right: "-15%", width: "65%", height: "65%", background: "radial-gradient(ellipse, rgba(100,160,255,0.05) 0%, rgba(100,160,255,0.015) 40%, transparent 70%)", pointerEvents: "none" }} />
+      <div style={{ position: "fixed", top: "40%", left: "50%", transform: "translate(-50%, -50%)", width: "80%", height: "50%", background: "radial-gradient(ellipse, rgba(199,125,255,0.02) 0%, transparent 60%)", pointerEvents: "none" }} />
 
-      <div style={{ maxWidth: tab === "compare" ? 1400 : 860, margin: "0 auto", padding: "32px 20px", position: "relative", zIndex: 1, transition: "max-width 0.3s ease" }}>
+      {/* Subtle top border glow */}
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, rgba(0,232,140,0.15), rgba(100,160,255,0.15), rgba(199,125,255,0.15), transparent)", pointerEvents: "none", zIndex: 10 }} />
+
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: "40px 40px", position: "relative", zIndex: 1, transition: "max-width 0.3s ease" }}>
         {/* Header */}
-        <div style={{ marginBottom: 32, textAlign: "center" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.2)", textTransform: "uppercase", letterSpacing: "0.2em", marginBottom: 8 }}>Livepeer Network</div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #00e88c 0%, #64a0ff 50%, #c77dff 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+        <div style={{ marginBottom: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.3em", marginBottom: 10 }}>Livepeer Network</div>
+          <h1 style={{
+            fontSize: 40, fontWeight: 800, margin: 0,
+            background: "linear-gradient(135deg, #00e88c 0%, #64a0ff 40%, #c77dff 70%, #ff6b9d 100%)",
+            backgroundSize: "200% 200%",
+            animation: "gradient-shift 8s ease infinite",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            letterSpacing: "-0.01em",
+          }}>
             Delegator Dashboard
           </h1>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>
-            Powered by <a href="https://thegraph.com" target="_blank" rel="noopener" style={{ color: "#6f4cff", textDecoration: "none" }}>The Graph</a>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginTop: 8 }}>
+            Powered by <a href="https://thegraph.com" target="_blank" rel="noopener" style={{ color: "#6f4cff", textDecoration: "none", fontWeight: 600 }}>The Graph</a>
           </div>
+          {/* Decorative line */}
+          <div style={{ width: 60, height: 2, background: "linear-gradient(90deg, #00e88c, #64a0ff, #c77dff)", margin: "16px auto 0", borderRadius: 2, opacity: 0.4 }} />
         </div>
 
         {/* Wallet input */}
-        <GlassCard style={{ padding: "20px 24px", marginBottom: 28 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <GlassCard style={{ padding: "24px 32px", marginBottom: 32, maxWidth: 800, margin: "0 auto 32px" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <input
               type="text"
               value={inputVal}
@@ -473,22 +510,23 @@ export default function LivepeerDashboard() {
               onKeyDown={(e) => e.key === "Enter" && loadDelegator(inputVal)}
               placeholder="Enter wallet address (0x...) or ENS name (.eth)"
               style={{
-                flex: 1, minWidth: 240, padding: "12px 16px", borderRadius: 10,
+                flex: 1, minWidth: 280, padding: "14px 20px", borderRadius: 12,
                 background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "#fff", fontSize: 13, fontFamily: "'Space Mono', monospace",
-                outline: "none", transition: "border-color 0.2s",
+                color: "#fff", fontSize: 14, fontFamily: "'Space Mono', monospace",
+                outline: "none", transition: "border-color 0.3s, box-shadow 0.3s",
               }}
-              onFocus={(e) => (e.target.style.borderColor = "rgba(0,232,140,0.3)")}
-              onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+              onFocus={(e) => { e.target.style.borderColor = "rgba(0,232,140,0.4)"; e.target.style.boxShadow = "0 0 20px rgba(0,232,140,0.08)"; }}
+              onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
             />
             <button
               onClick={() => loadDelegator(inputVal)}
               disabled={loading}
               style={{
-                padding: "12px 28px", borderRadius: 10, border: "none",
-                background: loading ? "rgba(0,232,140,0.2)" : "linear-gradient(135deg, #00e88c, #00c878)",
-                color: "#06060e", fontSize: 13, fontWeight: 800, cursor: loading ? "wait" : "pointer",
-                transition: "all 0.2s", letterSpacing: "0.02em",
+                padding: "14px 36px", borderRadius: 12, border: "none",
+                background: loading ? "rgba(0,232,140,0.2)" : "linear-gradient(135deg, #00e88c, #00c878, #00b469)",
+                color: "#06060e", fontSize: 14, fontWeight: 800, cursor: loading ? "wait" : "pointer",
+                transition: "all 0.3s", letterSpacing: "0.02em",
+                boxShadow: loading ? "none" : "0 4px 20px rgba(0,232,140,0.25)",
               }}
             >
               {loading ? "Loading…" : "Load Dashboard"}
@@ -520,7 +558,6 @@ export default function LivepeerDashboard() {
           <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
             <div style={{ fontSize: 14, fontWeight: 600 }}>Querying the Livepeer subgraph…</div>
             <div style={{ marginTop: 16, width: 40, height: 40, border: "3px solid rgba(0,232,140,0.15)", borderTopColor: "#00e88c", borderRadius: "50%", margin: "16px auto", animation: "spin 0.8s linear infinite" }} />
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}
 
@@ -528,7 +565,7 @@ export default function LivepeerDashboard() {
         {data && !loading && (
           <>
             {/* Tab bar */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 24, ...fadeStyle(0) }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 28, ...fadeStyle(0), justifyContent: "center" }}>
               {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["compare", "Compare"]].map(([k, l]) => (
                 <ChipTab key={k} label={l} active={tab === k} onClick={() => setTab(k)} />
               ))}
@@ -537,7 +574,7 @@ export default function LivepeerDashboard() {
             {/* ═══ DASHBOARD TAB ═══ */}
             {tab === "dash" && (
               <>
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16, ...fadeStyle(50) }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20, ...fadeStyle(50) }}>
                   <StatCard label="Bonded Amount">
                     <AnimNum value={bondedAmount} suffix=" LPT" />
                   </StatCard>
@@ -549,60 +586,63 @@ export default function LivepeerDashboard() {
                   </StatCard>
                 </div>
 
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16, ...fadeStyle(150) }}>
-                  <GlassCard style={{ padding: "20px 24px", flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 20 }}>
-                    <PieChart width={80} height={80}>
-                      <Pie data={[{ v: earned }, { v: Math.max(principal, 0) }]} dataKey="v" cx={40} cy={40} innerRadius={25} outerRadius={38} startAngle={90} endAngle={-270} strokeWidth={0}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 20, ...fadeStyle(150) }}>
+                  <GlassCard glow="#00e88c" style={{ padding: "28px 32px", display: "flex", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #00e88c60, transparent)" }} />
+                    <PieChart width={90} height={90}>
+                      <Pie data={[{ v: earned }, { v: Math.max(principal, 0) }]} dataKey="v" cx={45} cy={45} innerRadius={28} outerRadius={42} startAngle={90} endAngle={-270} strokeWidth={0}>
                         <Cell fill="#00e88c" />
                         <Cell fill="rgba(255,255,255,0.06)" />
                       </Pie>
                     </PieChart>
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Reward ROI</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: "#00e88c", fontFamily: "'Space Mono', monospace" }}>{roi.toFixed(0)}%</div>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>rewards / principal</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Reward ROI</div>
+                      <div style={{ fontSize: 34, fontWeight: 800, color: "#00e88c", fontFamily: "'Space Mono', monospace" }}>{roi.toFixed(0)}%</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>rewards / principal</div>
                     </div>
                   </GlassCard>
 
-                  <GlassCard style={{ padding: "20px 24px", flex: 1, minWidth: 200, display: "flex", alignItems: "center", gap: 20 }}>
+                  <GlassCard glow="#ffb84d" style={{ padding: "28px 32px", display: "flex", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #ffb84d60, transparent)" }} />
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Avg LPT / Round</div>
-                      <div style={{ fontSize: 28, fontWeight: 800, color: "#ffb84d", fontFamily: "'Space Mono', monospace" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Avg LPT / Round</div>
+                      <div style={{ fontSize: 34, fontWeight: 800, color: "#ffb84d", fontFamily: "'Space Mono', monospace" }}>
                         {totalRounds > 0 ? (earned / totalRounds).toFixed(2) : "—"}
                       </div>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)" }}>≈ daily earning rate</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>≈ daily earning rate</div>
                     </div>
                   </GlassCard>
                 </div>
 
                 {/* Orchestrator info */}
                 {del && (
-                  <GlassCard style={{ padding: "20px 24px", ...fadeStyle(250) }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Current Orchestrator</div>
-                    <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                  <GlassCard glow="#64a0ff" style={{ padding: "28px 32px", ...fadeStyle(250), position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #64a0ff60, transparent)" }} />
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 16 }}>Current Orchestrator</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 20 }}>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>Address</div>
-                        <div style={{ fontSize: 12, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.6)" }}>{fmtAddr(del.id)}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Address</div>
+                        <div style={{ fontSize: 13, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.65)" }}>{fmtAddr(del.id)}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>Status</div>
-                        <div style={{ fontSize: 12, color: del.active ? "#00e88c" : "#ff5c5c" }}>{del.active ? "● Active" : "○ Inactive"}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Status</div>
+                        <div style={{ fontSize: 13, color: del.active ? "#00e88c" : "#ff5c5c", fontWeight: 700 }}>{del.active ? "● Active" : "○ Inactive"}</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>Reward Cut</div>
-                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{(Number(del.rewardCut) / 10000).toFixed(2)}%</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Reward Cut</div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontWeight: 600 }}>{(Number(del.rewardCut) / 10000).toFixed(2)}%</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>Fee Share</div>
-                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{(Number(del.feeShare) / 10000).toFixed(2)}%</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Fee Share</div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontWeight: 600 }}>{(Number(del.feeShare) / 10000).toFixed(2)}%</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>Total Stake</div>
-                        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>{fmtN(Number(del.totalStake))} LPT</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Total Stake</div>
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontWeight: 600 }}>{fmtN(Number(del.totalStake))} LPT</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 2 }}>30d Fees</div>
-                        <div style={{ fontSize: 12, color: "#c77dff" }}>{fmtN(Number(del.thirtyDayVolumeETH), 4)} ETH</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>30d Fees</div>
+                        <div style={{ fontSize: 13, color: "#c77dff", fontWeight: 700 }}>{fmtN(Number(del.thirtyDayVolumeETH), 4)} ETH</div>
                       </div>
                     </div>
                   </GlassCard>
@@ -610,20 +650,21 @@ export default function LivepeerDashboard() {
 
                 {/* Cumulative chart */}
                 {cumData.length > 0 && (
-                  <GlassCard style={{ padding: "24px 28px", marginTop: 16, ...fadeStyle(350) }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Cumulative Rewards</div>
-                    <ResponsiveContainer width="100%" height={200}>
+                  <GlassCard style={{ padding: "28px 32px", marginTop: 20, ...fadeStyle(350) }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>Cumulative Rewards</div>
+                    <ResponsiveContainer width="100%" height={280}>
                       <AreaChart data={cumData}>
                         <defs>
                           <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#00e88c" stopOpacity={0.2} />
+                            <stop offset="0%" stopColor="#00e88c" stopOpacity={0.3} />
+                            <stop offset="50%" stopColor="#00e88c" stopOpacity={0.1} />
                             <stop offset="100%" stopColor="#00e88c" stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={50} />
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={60} />
                         <Tooltip content={<TT />} />
-                        <Area type="monotone" dataKey="lpt" name="Total LPT" stroke="#00e88c" strokeWidth={2.5} fill="url(#gA)" dot={{ r: 3, fill: "#00e88c", stroke: "#06060e", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey="lpt" name="Total LPT" stroke="#00e88c" strokeWidth={2.5} fill="url(#gA)" dot={{ r: 3.5, fill: "#00e88c", stroke: "#06060e", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#00e88c", stroke: "#06060e", strokeWidth: 2.5 }} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </GlassCard>
@@ -641,11 +682,11 @@ export default function LivepeerDashboard() {
                   <ChipTab label="Growth" active={metric === "cum"} onClick={() => setMetric("cum")} color="#64a0ff" />
                 </div>
 
-                <GlassCard style={{ ...fadeStyle(150), padding: "24px 28px", marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
+                <GlassCard style={{ ...fadeStyle(150), padding: "28px 32px", marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>
                     {metric === "cum" ? "Cumulative Growth" : metric === "lpt" ? "LPT Earned Per Claim" : metric === "daily" ? "LPT Earned Per Round (Daily Rate)" : "ETH Fees Per Claim"}
                   </div>
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={320}>
                     {metric === "cum" ? (
                       <AreaChart data={cumData}>
                         <defs>
@@ -654,30 +695,30 @@ export default function LivepeerDashboard() {
                             <stop offset="100%" stopColor="#64a0ff" stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={50} />
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={60} />
                         <Tooltip content={<TT />} />
-                        <Area type="monotone" dataKey="lpt" name="LPT" stroke="#64a0ff" strokeWidth={2.5} fill="url(#gB)" dot={{ r: 3, fill: "#64a0ff", stroke: "#06060e", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey="lpt" name="LPT" stroke="#64a0ff" strokeWidth={2.5} fill="url(#gB)" dot={{ r: 3.5, fill: "#64a0ff", stroke: "#06060e", strokeWidth: 2 }} activeDot={{ r: 6, fill: "#64a0ff", stroke: "#06060e", strokeWidth: 2.5 }} />
                       </AreaChart>
                     ) : metric === "daily" ? (
-                      <BarChart data={claims.map((c) => ({ date: fmtM(c.ts), lpt: +(c.lpt / c.rounds).toFixed(2), rounds: c.rounds }))} barCategoryGap="20%">
-                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={50} />
+                      <BarChart data={claims.map((c) => ({ date: fmtM(c.ts), lpt: +(c.lpt / c.rounds).toFixed(2), rounds: c.rounds }))} barCategoryGap="15%">
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={60} />
                         <Tooltip content={<TT />} />
-                        <Bar dataKey="lpt" name="LPT/Round" radius={[6, 6, 0, 0]}>
+                        <Bar dataKey="lpt" name="LPT/Round" radius={[8, 8, 0, 0]}>
                           {claims.map((_, i) => (
-                            <Cell key={i} fill={`rgba(255,184,77,${0.4 + (i / claims.length) * 0.5})`} />
+                            <Cell key={i} fill={`rgba(255,184,77,${0.4 + (i / claims.length) * 0.55})`} />
                           ))}
                         </Bar>
                       </BarChart>
                     ) : (
-                      <BarChart data={claims.map((c) => ({ date: fmtM(c.ts), lpt: +c.lpt.toFixed(2), eth: +c.eth.toFixed(5) }))} barCategoryGap="20%">
-                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={50} />
+                      <BarChart data={claims.map((c) => ({ date: fmtM(c.ts), lpt: +c.lpt.toFixed(2), eth: +c.eth.toFixed(5) }))} barCategoryGap="15%">
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={60} />
                         <Tooltip content={<TT />} />
-                        <Bar dataKey={metric} name={metric === "lpt" ? "LPT" : "ETH Fees"} radius={[6, 6, 0, 0]}>
+                        <Bar dataKey={metric} name={metric === "lpt" ? "LPT" : "ETH Fees"} radius={[8, 8, 0, 0]}>
                           {claims.map((_, i) => (
-                            <Cell key={i} fill={metric === "lpt" ? `rgba(0,232,140,${0.4 + (i / claims.length) * 0.5})` : `rgba(199,125,255,${0.4 + (i / claims.length) * 0.5})`} />
+                            <Cell key={i} fill={metric === "lpt" ? `rgba(0,232,140,${0.4 + (i / claims.length) * 0.55})` : `rgba(199,125,255,${0.4 + (i / claims.length) * 0.55})`} />
                           ))}
                         </Bar>
                       </BarChart>
@@ -686,30 +727,30 @@ export default function LivepeerDashboard() {
                 </GlassCard>
 
                 {/* Claims table */}
-                <GlassCard style={{ ...fadeStyle(250), padding: "24px 28px" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
+                <GlassCard style={{ ...fadeStyle(250), padding: "28px 32px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>
                     Claim History — {claims.length} claims
                   </div>
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 13 }}>
                       <thead>
-                        <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                        <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                           {["Rounds", "LPT Earned", "LPT/Round", "ETH Fees", "ETH/Round", "Date"].map((h) => (
-                            <th key={h} style={{ padding: "8px 12px", textAlign: h === "Rounds" || h === "Date" ? "left" : "right", color: "rgba(255,255,255,0.3)", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
+                            <th key={h} style={{ padding: "10px 14px", textAlign: h === "Rounds" || h === "Date" ? "left" : "right", color: "rgba(255,255,255,0.35)", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em" }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {[...claims].reverse().map((c, i) => (
-                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.025)", transition: "background 0.2s", cursor: "default" }}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,232,140,0.03)")}
+                          <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)", transition: "background 0.2s", cursor: "default" }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,232,140,0.04)")}
                               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-                            <td style={{ padding: "12px", color: "rgba(255,255,255,0.5)" }}>{c.r}</td>
-                            <td style={{ padding: "12px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>+{c.lpt.toFixed(2)}</td>
-                            <td style={{ padding: "12px", textAlign: "right", color: "rgba(0,232,140,0.5)", fontSize: 11 }}>{(c.lpt / c.rounds).toFixed(2)}</td>
-                            <td style={{ padding: "12px", textAlign: "right", color: "rgba(199,125,255,0.7)" }}>+{c.eth.toFixed(5)}</td>
-                            <td style={{ padding: "12px", textAlign: "right", color: "rgba(199,125,255,0.4)", fontSize: 11 }}>{(c.eth / c.rounds).toFixed(6)}</td>
-                            <td style={{ padding: "12px", color: "rgba(255,255,255,0.3)" }}>{fmtD(c.ts)}</td>
+                            <td style={{ padding: "14px", color: "rgba(255,255,255,0.5)" }}>{c.r}</td>
+                            <td style={{ padding: "14px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>+{c.lpt.toFixed(2)}</td>
+                            <td style={{ padding: "14px", textAlign: "right", color: "rgba(0,232,140,0.5)", fontSize: 11 }}>{(c.lpt / c.rounds).toFixed(2)}</td>
+                            <td style={{ padding: "14px", textAlign: "right", color: "rgba(199,125,255,0.7)" }}>+{c.eth.toFixed(5)}</td>
+                            <td style={{ padding: "14px", textAlign: "right", color: "rgba(199,125,255,0.4)", fontSize: 11 }}>{(c.eth / c.rounds).toFixed(6)}</td>
+                            <td style={{ padding: "14px", color: "rgba(255,255,255,0.35)" }}>{fmtD(c.ts)}</td>
                           </tr>
                         ))}
                         <tr style={{ borderTop: "2px solid rgba(0,232,140,0.15)" }}>
@@ -729,21 +770,31 @@ export default function LivepeerDashboard() {
 
             {/* ═══ HISTORY TAB ═══ */}
             {tab === "hist" && (
-              <GlassCard style={{ ...fadeStyle(50), padding: "24px 28px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 20 }}>
+              <GlassCard style={{ ...fadeStyle(50), padding: "28px 32px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 24 }}>
                   Event Timeline — {data.events.length} events
                 </div>
                 {data.events.slice().reverse().map((evt, i) => (
-                  <div key={i} style={{ display: "flex", gap: 16, marginBottom: 0, padding: "14px 0", borderBottom: "1px solid rgba(255,255,255,0.025)" }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: evtColors[evt.t] || "#555", marginTop: 4, flexShrink: 0, boxShadow: `0 0 8px ${evtColors[evt.t] || "#555"}44` }} />
+                  <div key={i} style={{
+                    display: "flex", gap: 20, padding: "16px 16px", marginBottom: 4, borderRadius: 12,
+                    borderBottom: "1px solid rgba(255,255,255,0.02)",
+                    transition: "background 0.2s",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = `${evtColors[evt.t] || "#555"}08`)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: evtColors[evt.t] || "#555", flexShrink: 0, boxShadow: `0 0 12px ${evtColors[evt.t] || "#555"}55` }} />
+                      {i < data.events.length - 1 && <div style={{ width: 1, flex: 1, background: "rgba(255,255,255,0.04)", minHeight: 12 }} />}
+                    </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: evtColors[evt.t] || "#555", background: `${evtColors[evt.t] || "#555"}15`, padding: "2px 8px", borderRadius: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: evtColors[evt.t] || "#555", background: `${evtColors[evt.t] || "#555"}15`, padding: "3px 10px", borderRadius: 6 }}>
                           {evt.t}
                         </span>
-                        <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", fontFamily: "'Space Mono', monospace" }}>{fmtD(evt.ts)}</span>
+                        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", fontFamily: "'Space Mono', monospace" }}>{fmtD(evt.ts)}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>{evt.desc}</div>
+                      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 6 }}>{evt.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -764,18 +815,19 @@ export default function LivepeerDashboard() {
                   <>
                     {/* Protocol stats banner */}
                     {protocolData && (
-                      <GlassCard style={{ padding: "16px 24px", marginBottom: 12, ...fadeStyle(0) }}>
-                        <div style={{ display: "flex", gap: 24, flexWrap: "wrap", justifyContent: "center" }}>
+                      <GlassCard style={{ padding: "20px 32px", marginBottom: 16, ...fadeStyle(0), position: "relative", overflow: "hidden" }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, rgba(100,160,255,0.3), rgba(0,232,140,0.3), rgba(199,125,255,0.3), transparent)" }} />
+                        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", justifyContent: "center" }}>
                           {[
-                            { label: "Round", value: `#${protocolData.currentRound}`, color: "rgba(255,255,255,0.6)" },
+                            { label: "Round", value: `#${protocolData.currentRound}`, color: "rgba(255,255,255,0.7)" },
                             { label: "Inflation", value: `${(protocolData.inflation / 10000000).toFixed(4)}%/round`, color: "#ffb84d" },
                             { label: "Participation", value: `${(protocolData.participationRate * 100).toFixed(1)}%`, color: "#00e88c" },
                             { label: "Total Active Stake", value: `${fmtN(protocolData.totalActiveStake, 0)} LPT`, color: "#64a0ff" },
                             { label: "LPT/ETH", value: fmtN(protocolData.lptPriceEth, 6), color: "#c77dff" },
                           ].map((s) => (
-                            <div key={s.label} style={{ textAlign: "center" }}>
-                              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.label}</div>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 2 }}>{s.value}</div>
+                            <div key={s.label} style={{ textAlign: "center", padding: "4px 0" }}>
+                              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600 }}>{s.label}</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 4 }}>{s.value}</div>
                             </div>
                           ))}
                         </div>
@@ -783,14 +835,15 @@ export default function LivepeerDashboard() {
                     )}
 
                     {/* Summary callout */}
-                    <GlassCard style={{ padding: "20px 24px", marginBottom: 16, ...fadeStyle(50) }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                    <GlassCard glow="#00e88c" style={{ padding: "24px 32px", marginBottom: 20, ...fadeStyle(50), position: "relative", overflow: "hidden" }}>
+                      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #00e88c50, transparent)" }} />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
                         <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Your Orchestrator</div>
-                          <div style={{ fontSize: 14, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.6)" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 8 }}>Your Orchestrator</div>
+                          <div style={{ fontSize: 16, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.7)" }}>
                             {orchDisplay(currentOrchId || "")}
                             {currentOrchRank > 0 && (
-                              <span style={{ marginLeft: 12, fontSize: 12, color: "#00e88c", fontWeight: 700 }}>
+                              <span style={{ marginLeft: 14, fontSize: 13, color: "#00e88c", fontWeight: 700 }}>
                                 Rank #{currentOrchRank} of {filteredOrchs.length} {orchFilter === "working" ? "working" : "active"}
                               </span>
                             )}
@@ -855,14 +908,14 @@ export default function LivepeerDashboard() {
                     </div>
 
                     {/* Scatter plot: APY vs ETH yield */}
-                    <GlassCard style={{ padding: "24px 28px", marginBottom: 16, ...fadeStyle(150) }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>
+                    <GlassCard style={{ padding: "28px 32px", marginBottom: 20, ...fadeStyle(150) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>
                         Reward APY vs ETH Yield
                       </div>
-                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginBottom: 20 }}>
                         Top-right = best of both worlds. Green dot = your orchestrator.
                       </div>
-                      <ResponsiveContainer width="100%" height={300}>
+                      <ResponsiveContainer width="100%" height={380}>
                         <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
                           <XAxis
                             type="number" dataKey="rewardAPY" name="Reward APY"
@@ -935,12 +988,12 @@ export default function LivepeerDashboard() {
                     </GlassCard>
 
                     {/* Leaderboard table */}
-                    <GlassCard style={{ padding: "24px 28px", ...fadeStyle(250) }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>
+                    <GlassCard style={{ padding: "28px 32px", ...fadeStyle(250) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>
                         Orchestrator Leaderboard — {filteredOrchs.length} orchestrators
-                        {simCustom && <span style={{ color: "#ffb84d", marginLeft: 8 }}>· Simulating {fmtN(simStake, 0)} LPT</span>}
+                        {simCustom && <span style={{ color: "#ffb84d", marginLeft: 10 }}>· Simulating {fmtN(simStake, 0)} LPT</span>}
                       </div>
-                      <div style={{ overflowX: "auto", maxHeight: 600, overflowY: "auto" }}>
+                      <div style={{ overflowX: "auto", maxHeight: 700, overflowY: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
                           <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "rgba(6,6,14,0.98)", backdropFilter: "blur(8px)" }}>
                             <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
@@ -1035,9 +1088,12 @@ export default function LivepeerDashboard() {
             )}
 
             {/* Footer */}
-            <div style={{ textAlign: "center", padding: "28px 0 12px", fontSize: 10, color: "rgba(255,255,255,0.15)", ...fadeStyle(400) }}>
-              Data from Livepeer Subgraph via The Graph · Built by{" "}
-              <a href="https://github.com/PaulieB14" target="_blank" rel="noopener" style={{ color: "rgba(0,232,140,0.4)", textDecoration: "none" }}>PaulieB14</a>
+            <div style={{ textAlign: "center", padding: "36px 0 16px", ...fadeStyle(400) }}>
+              <div style={{ width: 40, height: 1, background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)", margin: "0 auto 16px" }} />
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.2)" }}>
+                Data from Livepeer Subgraph via The Graph · Built by{" "}
+                <a href="https://github.com/PaulieB14" target="_blank" rel="noopener" style={{ color: "rgba(0,232,140,0.45)", textDecoration: "none", fontWeight: 600 }}>PaulieB14</a>
+              </div>
             </div>
           </>
         )}
