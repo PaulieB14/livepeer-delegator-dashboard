@@ -530,6 +530,13 @@ export default function LivepeerDashboard() {
       })).reverse();
 
       setNetworkData({ broadcasters, tickets, topFlows, dailyVolume });
+
+      // Resolve ENS names for all addresses on the network tab (best-effort)
+      const allAddrs = new Set();
+      broadcasters.forEach((b) => allAddrs.add(b.id));
+      tickets.forEach((t) => { allAddrs.add(t.sender); allAddrs.add(t.recipient); });
+      topFlows.forEach((f) => { allAddrs.add(f.sender); allAddrs.add(f.recipient); });
+      batchResolveENS([...allAddrs]).then((names) => setEnsNames((prev) => ({ ...prev, ...names })));
     } catch (err) {
       console.error("Failed to load network data:", err);
     } finally {
@@ -1287,14 +1294,17 @@ export default function LivepeerDashboard() {
                                   onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(199,125,255,0.04)")}
                                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                                 <td style={{ padding: "12px 10px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{i + 1}</td>
-                                <td style={{ padding: "12px 10px", color: "rgba(255,255,255,0.6)" }}>{fmtAddr(b.id)}</td>
+                                <td style={{ padding: "12px 10px", color: ensNames[b.id] ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.5)" }}>
+                                  {orchDisplay(b.id)}
+                                  {ensNames[b.id] && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.25)", fontFamily: "'Space Mono', monospace" }}>{fmtAddr(b.id)}</div>}
+                                </td>
                                 <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)", fontWeight: 700 }}>{b.eth30d > 0 ? fmtN(b.eth30d, 4) : "0"}</td>
                                 <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth60d > 0 ? "rgba(199,125,255,0.6)" : "rgba(255,255,255,0.15)" }}>{b.eth60d > 0 ? fmtN(b.eth60d, 4) : "0"}</td>
                                 <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth90d > 0 ? "rgba(199,125,255,0.45)" : "rgba(255,255,255,0.15)" }}>{b.eth90d > 0 ? fmtN(b.eth90d, 4) : "0"}</td>
                                 <td style={{ padding: "12px 10px", textAlign: "right", color: "#ffb84d", fontWeight: 600 }}>{fmtN(b.totalVolumeETH, 2)}</td>
                                 <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{fmtN(b.deposit, 4)}</td>
-                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.firstFundedDay > 0 ? fmtD(b.firstFundedDay * 86400) : "—"}</td>
-                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.lastFundedDay > 0 ? fmtD(b.lastFundedDay * 86400) : "—"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.firstFundedDay > 0 ? fmtD(b.firstFundedDay) : "—"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.lastFundedDay > 0 ? fmtD(b.lastFundedDay) : "—"}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1329,11 +1339,11 @@ export default function LivepeerDashboard() {
                                     onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(100,160,255,0.04)")}
                                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                                   <td style={{ padding: "12px 10px", color: "rgba(255,255,255,0.5)" }}>
-                                    {fmtAddr(f.sender)}
+                                    {orchDisplay(f.sender)}
                                     {isSelfRoute && <span style={{ marginLeft: 6, fontSize: 8, color: "#ffb84d", background: "rgba(255,184,77,0.15)", padding: "2px 5px", borderRadius: 4 }}>self</span>}
                                   </td>
                                   <td style={{ padding: "12px 4px", textAlign: "center", color: "rgba(255,255,255,0.15)", fontSize: 13 }}>→</td>
-                                  <td style={{ padding: "12px 10px", color: "#64a0ff" }}>{fmtAddr(f.recipient)}</td>
+                                  <td style={{ padding: "12px 10px", color: "#64a0ff" }}>{orchDisplay(f.recipient)}</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "#c77dff", fontWeight: 700 }}>{fmtN(f.totalETH, 4)}</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{f.count}</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: feeSharePct >= 50 ? "#00e88c" : feeSharePct > 0 ? "#ffb84d" : "#ff5c5c", fontWeight: 600 }}>
@@ -1370,8 +1380,8 @@ export default function LivepeerDashboard() {
                                   onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(199,125,255,0.03)")}
                                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                                 <td style={{ padding: "10px 10px", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{fmtD(t.ts)}</td>
-                                <td style={{ padding: "10px 10px", color: "rgba(255,255,255,0.5)" }}>{fmtAddr(t.sender)}</td>
-                                <td style={{ padding: "10px 10px", color: "#64a0ff" }}>{fmtAddr(t.recipient)}</td>
+                                <td style={{ padding: "10px 10px", color: "rgba(255,255,255,0.5)" }}>{orchDisplay(t.sender)}</td>
+                                <td style={{ padding: "10px 10px", color: "#64a0ff" }}>{orchDisplay(t.recipient)}</td>
                                 <td style={{ padding: "10px 10px", textAlign: "right", color: "#c77dff", fontWeight: 600 }}>{fmtN(t.faceValue, 4)}</td>
                                 <td style={{ padding: "10px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)" }}>${fmtN(t.faceValueUSD, 2)}</td>
                                 <td style={{ padding: "10px 10px", textAlign: "right", color: "rgba(255,255,255,0.3)" }}>{t.round}</td>
