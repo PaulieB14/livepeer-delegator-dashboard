@@ -43,15 +43,37 @@ const QUERIES = {
   transcoders: `{
     transcoders(where: { active: true }, first: 100, orderBy: totalStake, orderDirection: desc) {
       id active rewardCut feeShare totalStake
-      thirtyDayVolumeETH ninetyDayVolumeETH totalVolumeETH
+      thirtyDayVolumeETH sixtyDayVolumeETH ninetyDayVolumeETH totalVolumeETH
       lastRewardRound { id }
     }
   }`,
   protocol: `{
     protocol(id: "0") {
       inflation totalActiveStake totalSupply participationRate
+      totalVolumeETH totalVolumeUSD winningTicketCount delegatorsCount
       currentRound { id mintableTokens }
       lptPriceEth
+    }
+  }`,
+  broadcasters: `{
+    broadcasters(first: 20, orderBy: thirtyDayVolumeETH, orderDirection: desc) {
+      id deposit reserve totalVolumeETH totalVolumeUSD
+      thirtyDayVolumeETH sixtyDayVolumeETH ninetyDayVolumeETH
+      firstFundedDay lastFundedDay
+    }
+  }`,
+  recentTickets: `{
+    winningTicketRedeemedEvents(first: 50, orderBy: timestamp, orderDirection: desc) {
+      id timestamp
+      faceValue faceValueUSD
+      sender { id thirtyDayVolumeETH totalVolumeETH }
+      recipient { id totalStake feeShare thirtyDayVolumeETH }
+      round { id }
+    }
+  }`,
+  dailyVolume: `{
+    days(first: 30, orderBy: date, orderDirection: desc) {
+      id date volumeETH volumeUSD activeTranscoderCount delegatorsCount
     }
   }`,
 };
@@ -90,9 +112,10 @@ async function batchResolveENS(addresses) {
 }
 
 function exportCSV(orchs, ensNames, simStake) {
-  const headers = ["Orchestrator", "ENS Name", "Reward APY %", "30d ETH Fees", "ETH/LPT/yr", "Reward Cut %", "Fee Share %", "Total Stake", "Reward Calling", "Est LPT/yr", "Est ETH/yr"];
+  const headers = ["Orchestrator", "ENS Name", "Reward APY %", "30d ETH", "90d ETH", "Lifetime ETH", "ETH/LPT/yr", "Reward Cut %", "Fee Share %", "Total Stake", "Reward Calling", "Est LPT/yr", "Est ETH/yr"];
   const rows = orchs.map((o) => [
     o.id, ensNames[o.id] || "", o.rewardAPY.toFixed(2), o.eth30d.toFixed(4),
+    o.eth90d.toFixed(4), o.totalETH.toFixed(2),
     o.ethYieldPerLPT.toFixed(6), (o.rewardCut / 10000).toFixed(2), (o.feeShare / 10000).toFixed(2),
     o.stake.toFixed(0), o.callingReward ? "Yes" : "No",
     (simStake * o.rewardAPY / 100).toFixed(2), (simStake * o.ethYieldPerLPT).toFixed(6),
@@ -213,6 +236,8 @@ export default function LivepeerDashboard() {
   const [protocolData, setProtocolData] = useState(null);
   const [simStake, setSimStake] = useState(0);
   const [simCustom, setSimCustom] = useState(false);
+  const [networkData, setNetworkData] = useState(null);
+  const [networkLoading, setNetworkLoading] = useState(false);
 
   // ── URL param auto-load ──
   useEffect(() => {
@@ -345,6 +370,10 @@ export default function LivepeerDashboard() {
         participationRate: Number(protocol.participationRate),
         currentRound: currentRoundId,
         lptPriceEth: Number(protocol.lptPriceEth),
+        totalVolumeETH: Number(protocol.totalVolumeETH),
+        totalVolumeUSD: Number(protocol.totalVolumeUSD),
+        winningTicketCount: Number(protocol.winningTicketCount),
+        delegatorsCount: Number(protocol.delegatorsCount),
       });
 
       const orchs = tData.transcoders.map((t) => {
@@ -352,7 +381,9 @@ export default function LivepeerDashboard() {
         const rewardCut = Number(t.rewardCut);
         const feeShare = Number(t.feeShare);
         const eth30d = Number(t.thirtyDayVolumeETH);
+        const eth60d = Number(t.sixtyDayVolumeETH);
         const eth90d = Number(t.ninetyDayVolumeETH);
+        const totalETHVol = Number(t.totalVolumeETH);
 
         // Reward APY: per-round delegator yield, annualized
         const baseYield = totalActive > 0 ? mintable / totalActive : 0;
@@ -369,8 +400,9 @@ export default function LivepeerDashboard() {
           feeShare,
           stake,
           eth30d,
+          eth60d,
           eth90d,
-          totalETH: Number(t.totalVolumeETH),
+          totalETH: totalETHVol,
           rewardAPY,
           ethYieldPerLPT,
           delegatorFees30d,
@@ -420,6 +452,94 @@ export default function LivepeerDashboard() {
   useEffect(() => {
     if (tab === "compare" && data && !orchData && !orchLoading) {
       loadOrchestrators();
+    }
+  }, [tab, data]);
+
+  // ── Load network/broadcaster data ──
+  async function loadNetworkData() {
+    if (networkData) return;
+    setNetworkLoading(true);
+    try {
+      const fetches = [
+        gqlFetch(QUERIES.broadcasters),
+        gqlFetch(QUERIES.recentTickets),
+        gqlFetch(QUERIES.dailyVolume),
+      ];
+      // Load protocol data if not already loaded
+      if (!protocolData) fetches.push(gqlFetch(QUERIES.protocol));
+      const results = await Promise.all(fetches);
+      const [bData, tData, dData] = results;
+      if (results[3]) {
+        const protocol = results[3].protocol;
+        setProtocolData((prev) => prev || {
+          inflation: Number(protocol.inflation),
+          totalActiveStake: Number(protocol.totalActiveStake),
+          totalSupply: Number(protocol.totalSupply),
+          participationRate: Number(protocol.participationRate),
+          currentRound: protocol.currentRound.id,
+          lptPriceEth: Number(protocol.lptPriceEth),
+          totalVolumeETH: Number(protocol.totalVolumeETH),
+          totalVolumeUSD: Number(protocol.totalVolumeUSD),
+          winningTicketCount: Number(protocol.winningTicketCount),
+          delegatorsCount: Number(protocol.delegatorsCount),
+        });
+      }
+
+      const broadcasters = (bData.broadcasters || []).map((b) => ({
+        id: b.id,
+        deposit: Number(b.deposit),
+        reserve: Number(b.reserve),
+        totalVolumeETH: Number(b.totalVolumeETH),
+        totalVolumeUSD: Number(b.totalVolumeUSD),
+        eth30d: Number(b.thirtyDayVolumeETH),
+        eth60d: Number(b.sixtyDayVolumeETH),
+        eth90d: Number(b.ninetyDayVolumeETH),
+        firstFundedDay: Number(b.firstFundedDay),
+        lastFundedDay: Number(b.lastFundedDay),
+      }));
+
+      const tickets = (tData.winningTicketRedeemedEvents || []).map((t) => ({
+        id: t.id,
+        ts: Number(t.timestamp),
+        faceValue: Number(t.faceValue),
+        faceValueUSD: Number(t.faceValueUSD),
+        sender: t.sender.id,
+        senderVol30d: Number(t.sender.thirtyDayVolumeETH),
+        recipient: t.recipient.id,
+        recipientStake: Number(t.recipient.totalStake),
+        recipientFeeShare: Number(t.recipient.feeShare),
+        round: t.round.id,
+      }));
+
+      // Aggregate ticket flows: sender→recipient
+      const flows = {};
+      tickets.forEach((t) => {
+        const key = `${t.sender}->${t.recipient}`;
+        if (!flows[key]) flows[key] = { sender: t.sender, recipient: t.recipient, totalETH: 0, count: 0, recipientFeeShare: t.recipientFeeShare };
+        flows[key].totalETH += t.faceValue;
+        flows[key].count += 1;
+      });
+      const topFlows = Object.values(flows).sort((a, b) => b.totalETH - a.totalETH).slice(0, 15);
+
+      const dailyVolume = (dData.days || []).map((d) => ({
+        date: fmtD(Number(d.date) * 86400),
+        eth: Number(d.volumeETH),
+        usd: Number(d.volumeUSD),
+        orchestrators: Number(d.activeTranscoderCount),
+        delegators: Number(d.delegatorsCount),
+      })).reverse();
+
+      setNetworkData({ broadcasters, tickets, topFlows, dailyVolume });
+    } catch (err) {
+      console.error("Failed to load network data:", err);
+    } finally {
+      setNetworkLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "network" && data && !networkData && !networkLoading) {
+      loadNetworkData();
     }
   }, [tab, data]);
 
@@ -566,7 +686,7 @@ export default function LivepeerDashboard() {
           <>
             {/* Tab bar */}
             <div style={{ display: "flex", gap: 8, marginBottom: 28, ...fadeStyle(0), justifyContent: "center" }}>
-              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["compare", "Compare"]].map(([k, l]) => (
+              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["compare", "Compare"], ["network", "Network"]].map(([k, l]) => (
                 <ChipTab key={k} label={l} active={tab === k} onClick={() => setTab(k)} />
               ))}
             </div>
@@ -1001,7 +1121,9 @@ export default function LivepeerDashboard() {
                                 { col: "rank", label: "#", align: "center" },
                                 { col: "id", label: "Orchestrator", align: "left" },
                                 { col: "rewardAPY", label: "Reward APY", align: "right" },
-                                { col: "eth30d", label: "30d ETH Fees", align: "right" },
+                                { col: "eth30d", label: "30d ETH", align: "right" },
+                                { col: "eth90d", label: "90d ETH", align: "right" },
+                                { col: "totalETH", label: "Lifetime ETH", align: "right" },
                                 { col: "ethYieldPerLPT", label: "ETH/LPT/yr", align: "right" },
                                 { col: "rewardCut", label: "Reward Cut", align: "right" },
                                 { col: "feeShare", label: "Fee Share", align: "right" },
@@ -1055,6 +1177,8 @@ export default function LivepeerDashboard() {
                                   </td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>{o.rewardAPY.toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: o.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)" }}>{o.eth30d > 0 ? fmtN(o.eth30d, 4) : "0"}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: o.eth90d > 0 ? "rgba(199,125,255,0.5)" : "rgba(255,255,255,0.15)", fontSize: 10 }}>{o.eth90d > 0 ? fmtN(o.eth90d, 4) : "0"}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: o.totalETH > 0 ? "#ffb84d" : "rgba(255,255,255,0.15)", fontSize: 10 }}>{o.totalETH > 0 ? fmtN(o.totalETH, 2) : "0"}</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: o.ethYieldPerLPT > 0 ? "rgba(199,125,255,0.7)" : "rgba(255,255,255,0.15)", fontSize: 10 }}>{o.ethYieldPerLPT > 0 ? o.ethYieldPerLPT.toFixed(6) : "—"}</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.rewardCut / 10000).toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{(o.feeShare / 10000).toFixed(2)}%</td>
@@ -1078,6 +1202,181 @@ export default function LivepeerDashboard() {
                                 </tr>
                               );
                             })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </GlassCard>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* ═══ NETWORK TAB ═══ */}
+            {tab === "network" && (
+              <>
+                {networkLoading && (
+                  <div style={{ textAlign: "center", padding: "60px 20px", color: "rgba(255,255,255,0.3)" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>Loading network data…</div>
+                    <div style={{ marginTop: 16, width: 40, height: 40, border: "3px solid rgba(199,125,255,0.15)", borderTopColor: "#c77dff", borderRadius: "50%", margin: "16px auto", animation: "spin 0.8s linear infinite" }} />
+                  </div>
+                )}
+
+                {networkData && (
+                  <>
+                    {/* Protocol-level stats */}
+                    {protocolData && (
+                      <GlassCard style={{ padding: "20px 32px", marginBottom: 16, ...fadeStyle(0), position: "relative", overflow: "hidden" }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, rgba(199,125,255,0.3), rgba(255,184,77,0.3), rgba(0,232,140,0.3), transparent)" }} />
+                        <div style={{ display: "flex", gap: 32, flexWrap: "wrap", justifyContent: "center" }}>
+                          {[
+                            { label: "Total Network Fees", value: `${fmtN(protocolData.totalVolumeETH, 2)} ETH`, color: "#c77dff" },
+                            { label: "Winning Tickets", value: fmtN(protocolData.winningTicketCount, 0), color: "#ffb84d" },
+                            { label: "Active Broadcasters", value: networkData.broadcasters.filter((b) => b.eth30d > 0).length.toString(), color: "#00e88c" },
+                            { label: "Delegators", value: fmtN(protocolData.delegatorsCount, 0), color: "#64a0ff" },
+                          ].map((s) => (
+                            <div key={s.label} style={{ textAlign: "center", padding: "4px 0" }}>
+                              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600 }}>{s.label}</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 4 }}>{s.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </GlassCard>
+                    )}
+
+                    {/* Daily fee volume chart */}
+                    {networkData.dailyVolume.length > 0 && (
+                      <GlassCard style={{ padding: "28px 32px", marginBottom: 20, ...fadeStyle(50) }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>
+                          Daily Fee Volume (Last 30 Days)
+                        </div>
+                        <ResponsiveContainer width="100%" height={260}>
+                          <BarChart data={networkData.dailyVolume} barCategoryGap="15%">
+                            <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} interval={4} />
+                            <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={50} tickFormatter={(v) => v.toFixed(2)} />
+                            <Tooltip content={<TT />} />
+                            <Bar dataKey="eth" name="ETH Fees" radius={[6, 6, 0, 0]}>
+                              {networkData.dailyVolume.map((_, i) => (
+                                <Cell key={i} fill={`rgba(199,125,255,${0.35 + (i / networkData.dailyVolume.length) * 0.6})`} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </GlassCard>
+                    )}
+
+                    {/* Top Broadcasters */}
+                    <GlassCard style={{ padding: "28px 32px", marginBottom: 20, ...fadeStyle(150) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>
+                        Top Broadcasters — Paying Customers
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginBottom: 20 }}>
+                        Broadcasters pay ETH for video transcoding. Uses new v5 funded-day tracking.
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              {["#", "Broadcaster", "30d Fees", "60d Fees", "90d Fees", "Lifetime ETH", "Deposit", "First Funded", "Last Funded"].map((h) => (
+                                <th key={h} style={{ padding: "8px 10px", textAlign: h === "#" ? "center" : h === "Broadcaster" ? "left" : "right", color: "rgba(255,255,255,0.3)", fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {networkData.broadcasters.map((b, i) => (
+                              <tr key={b.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.025)", transition: "background 0.2s" }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(199,125,255,0.04)")}
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                                <td style={{ padding: "12px 10px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{i + 1}</td>
+                                <td style={{ padding: "12px 10px", color: "rgba(255,255,255,0.6)" }}>{fmtAddr(b.id)}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)", fontWeight: 700 }}>{b.eth30d > 0 ? fmtN(b.eth30d, 4) : "0"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth60d > 0 ? "rgba(199,125,255,0.6)" : "rgba(255,255,255,0.15)" }}>{b.eth60d > 0 ? fmtN(b.eth60d, 4) : "0"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: b.eth90d > 0 ? "rgba(199,125,255,0.45)" : "rgba(255,255,255,0.15)" }}>{b.eth90d > 0 ? fmtN(b.eth90d, 4) : "0"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "#ffb84d", fontWeight: 600 }}>{fmtN(b.totalVolumeETH, 2)}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{fmtN(b.deposit, 4)}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.firstFundedDay > 0 ? fmtD(b.firstFundedDay * 86400) : "—"}</td>
+                                <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{b.lastFundedDay > 0 ? fmtD(b.lastFundedDay * 86400) : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </GlassCard>
+
+                    {/* Payment Flow: Broadcaster → Orchestrator */}
+                    <GlassCard style={{ padding: "28px 32px", marginBottom: 20, ...fadeStyle(250) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>
+                        Payment Flow — Broadcaster → Orchestrator
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginBottom: 20 }}>
+                        Aggregated from recent winning ticket redemptions. Fee Share shows how much the orchestrator passes to delegators.
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              {["Broadcaster", "", "Orchestrator", "ETH Paid", "Tickets", "Fee Share", "→ Delegators"].map((h, hi) => (
+                                <th key={hi} style={{ padding: "8px 10px", textAlign: h === "" || h === "→ Delegators" ? "center" : hi < 3 ? "left" : "right", color: "rgba(255,255,255,0.3)", fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {networkData.topFlows.map((f, i) => {
+                              const feeSharePct = f.recipientFeeShare / 10000;
+                              const delegatorETH = f.totalETH * (f.recipientFeeShare / 1000000);
+                              const isSelfRoute = f.sender.toLowerCase() === f.recipient.toLowerCase();
+                              return (
+                                <tr key={i} style={{ borderBottom: "1px solid rgba(255,255,255,0.025)", transition: "background 0.2s" }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(100,160,255,0.04)")}
+                                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                                  <td style={{ padding: "12px 10px", color: "rgba(255,255,255,0.5)" }}>
+                                    {fmtAddr(f.sender)}
+                                    {isSelfRoute && <span style={{ marginLeft: 6, fontSize: 8, color: "#ffb84d", background: "rgba(255,184,77,0.15)", padding: "2px 5px", borderRadius: 4 }}>self</span>}
+                                  </td>
+                                  <td style={{ padding: "12px 4px", textAlign: "center", color: "rgba(255,255,255,0.15)", fontSize: 13 }}>→</td>
+                                  <td style={{ padding: "12px 10px", color: "#64a0ff" }}>{fmtAddr(f.recipient)}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "#c77dff", fontWeight: 700 }}>{fmtN(f.totalETH, 4)}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{f.count}</td>
+                                  <td style={{ padding: "12px 10px", textAlign: "right", color: feeSharePct >= 50 ? "#00e88c" : feeSharePct > 0 ? "#ffb84d" : "#ff5c5c", fontWeight: 600 }}>
+                                    {feeSharePct.toFixed(0)}%
+                                  </td>
+                                  <td style={{ padding: "12px 10px", textAlign: "center", color: delegatorETH > 0 ? "rgba(0,232,140,0.6)" : "rgba(255,255,255,0.15)", fontSize: 10 }}>
+                                    {delegatorETH > 0 ? `${fmtN(delegatorETH, 4)} ETH` : "0"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </GlassCard>
+
+                    {/* Recent Winning Tickets */}
+                    <GlassCard style={{ padding: "28px 32px", ...fadeStyle(350) }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 20 }}>
+                        Recent Winning Tickets — Last {networkData.tickets.length}
+                      </div>
+                      <div style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Space Mono', monospace", fontSize: 11 }}>
+                          <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "rgba(6,6,14,0.98)", backdropFilter: "blur(8px)" }}>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              {["Time", "Broadcaster", "Orchestrator", "ETH", "USD", "Round"].map((h) => (
+                                <th key={h} style={{ padding: "8px 10px", textAlign: h === "ETH" || h === "USD" || h === "Round" ? "right" : "left", color: "rgba(255,255,255,0.3)", fontWeight: 600, fontSize: 9, textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {networkData.tickets.map((t) => (
+                              <tr key={t.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.025)", transition: "background 0.2s" }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(199,125,255,0.03)")}
+                                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                                <td style={{ padding: "10px 10px", color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{fmtD(t.ts)}</td>
+                                <td style={{ padding: "10px 10px", color: "rgba(255,255,255,0.5)" }}>{fmtAddr(t.sender)}</td>
+                                <td style={{ padding: "10px 10px", color: "#64a0ff" }}>{fmtAddr(t.recipient)}</td>
+                                <td style={{ padding: "10px 10px", textAlign: "right", color: "#c77dff", fontWeight: 600 }}>{fmtN(t.faceValue, 4)}</td>
+                                <td style={{ padding: "10px 10px", textAlign: "right", color: "rgba(255,255,255,0.35)" }}>${fmtN(t.faceValueUSD, 2)}</td>
+                                <td style={{ padding: "10px 10px", textAlign: "right", color: "rgba(255,255,255,0.3)" }}>{t.round}</td>
+                              </tr>
+                            ))}
                           </tbody>
                         </table>
                       </div>
