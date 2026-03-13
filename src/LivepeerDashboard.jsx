@@ -388,6 +388,12 @@ export default function LivepeerDashboard() {
       setShow(false);
       setSimStake(Number(del.bondedAmount));
       setSimCustom(false);
+      // Resolve ENS for orchestrator (best-effort)
+      if (del.delegate?.id) {
+        batchResolveENS([del.delegate.id]).then((names) =>
+          setEnsNames((prev) => ({ ...prev, ...names }))
+        );
+      }
       // Sync URL for sharing
       const url = new URL(window.location);
       url.searchParams.set("address", addr);
@@ -845,7 +851,7 @@ export default function LivepeerDashboard() {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 20 }}>
                       <div>
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Address</div>
-                        <div style={{ fontSize: 13, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.65)" }}>{fmtAddr(del.id)}</div>
+                        <div style={{ fontSize: 13, fontFamily: "'Space Mono', monospace", color: "rgba(255,255,255,0.65)" }}>{ensNames[del.id?.toLowerCase()] || fmtAddr(del.id)}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Status</div>
