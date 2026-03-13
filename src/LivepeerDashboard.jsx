@@ -76,6 +76,11 @@ const QUERIES = {
       id date volumeETH volumeUSD activeTranscoderCount delegatorsCount
     }
   }`,
+  cutHistory: (id) => `{
+    transcoderUpdateEvents(where: { delegate: "${id}" }, orderBy: timestamp, orderDirection: asc, first: 1000) {
+      id timestamp rewardCut feeShare round { id }
+    }
+  }`,
 };
 
 async function gqlFetch(query, subgraphId = LIVEPEER_SUBGRAPH_ID) {
@@ -275,6 +280,10 @@ export default function LivepeerDashboard() {
   const [networkLoading, setNetworkLoading] = useState(false);
   const [prices, setPrices] = useState(null);
   const [lptSparkline, setLptSparkline] = useState(null);
+  const [cutHistory, setCutHistory] = useState(null);
+  const [cutHistoryOrch, setCutHistoryOrch] = useState(null);
+  const [compareCutOrch, setCompareCutOrch] = useState(null);
+  const [compareCutData, setCompareCutData] = useState(null);
 
   // ── Fetch CoinGecko prices on mount + every 60s ──
   useEffect(() => {
@@ -393,6 +402,18 @@ export default function LivepeerDashboard() {
         batchResolveENS([del.delegate.id]).then((names) =>
           setEnsNames((prev) => ({ ...prev, ...names }))
         );
+        // Fetch orchestrator cut history
+        gqlFetch(QUERIES.cutHistory(del.delegate.id.toLowerCase())).then((hData) => {
+          const events = (hData?.transcoderUpdateEvents || []).map((e) => ({
+            ts: Number(e.timestamp),
+            date: fmtD(Number(e.timestamp)),
+            rewardCut: Number(e.rewardCut) / 10000,
+            feeShare: Number(e.feeShare) / 10000,
+            round: e.round?.id,
+          }));
+          setCutHistory(events);
+          setCutHistoryOrch(del.delegate.id.toLowerCase());
+        }).catch(() => {});
       }
       // Sync URL for sharing
       const url = new URL(window.location);
@@ -877,6 +898,48 @@ export default function LivepeerDashboard() {
                   </GlassCard>
                 )}
 
+                {/* Orchestrator cut history chart */}
+                {cutHistory && cutHistory.length > 1 && cutHistoryOrch === del?.id?.toLowerCase() && (
+                  <GlassCard glow="#ffb84d" style={{ padding: "28px 32px", marginTop: 20, ...fadeStyle(300), position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #ffb84d60, transparent)" }} />
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>
+                      Orchestrator Cut History
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 20 }}>
+                      {ensNames[cutHistoryOrch] || fmtAddr(cutHistoryOrch)} · {cutHistory.length} changes tracked
+                    </div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <LineChart data={cutHistory}>
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={45} tickFormatter={(v) => `${v}%`} />
+                        <Tooltip content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          return (
+                            <div style={{ background: "rgba(6,6,14,0.97)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+                              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 600 }}>{label}</div>
+                              {payload.map((p, i) => (
+                                <div key={i} style={{ fontSize: 13, fontWeight: 700, color: p.color, fontFamily: "'Space Mono', monospace" }}>
+                                  {p.name}: {p.value.toFixed(2)}%
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }} />
+                        <Line type="stepAfter" dataKey="rewardCut" name="Reward Cut" stroke="#ff6b9d" strokeWidth={2} dot={{ r: 3, fill: "#ff6b9d" }} />
+                        <Line type="stepAfter" dataKey="feeShare" name="Fee Share" stroke="#64a0ff" strokeWidth={2} dot={{ r: 3, fill: "#64a0ff" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                        <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                        <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share
+                      </div>
+                    </div>
+                  </GlassCard>
+                )}
+
                 {/* Cumulative chart */}
                 {cumData.length > 0 && (
                   <GlassCard style={{ padding: "28px 32px", marginTop: 20, ...fadeStyle(350) }}>
@@ -1285,7 +1348,24 @@ export default function LivepeerDashboard() {
                                 >
                                   <td style={{ padding: "12px 10px", textAlign: "center", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{i + 1}</td>
                                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap" }}>
-                                    <span style={{ color: isCurrent ? "#00e88c" : ensNames[o.id] ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.5)" }}>{orchDisplay(o.id)}</span>
+                                    <span
+                                      style={{ color: isCurrent ? "#00e88c" : ensNames[o.id] ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.5)", cursor: "pointer", borderBottom: compareCutOrch === o.id ? "1px solid currentColor" : "1px dashed transparent", transition: "border-color 0.2s" }}
+                                      title="Click to view cut history"
+                                      onClick={() => {
+                                        if (compareCutOrch === o.id) { setCompareCutOrch(null); setCompareCutData(null); return; }
+                                        setCompareCutOrch(o.id);
+                                        setCompareCutData(null);
+                                        gqlFetch(QUERIES.cutHistory(o.id)).then((hData) => {
+                                          const events = (hData?.transcoderUpdateEvents || []).map((e) => ({
+                                            ts: Number(e.timestamp),
+                                            date: fmtD(Number(e.timestamp)),
+                                            rewardCut: Number(e.rewardCut) / 10000,
+                                            feeShare: Number(e.feeShare) / 10000,
+                                          }));
+                                          setCompareCutData(events);
+                                        }).catch(() => setCompareCutData([]));
+                                      }}
+                                    >{orchDisplay(o.id)}</span>
                                     {isCurrent && <span style={{ marginLeft: 8, fontSize: 8, fontWeight: 700, color: "#00e88c", background: "rgba(0,232,140,0.15)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>yours</span>}
                                     {!o.isWorking && <span style={{ marginLeft: 6, fontSize: 8, color: "rgba(255,255,255,0.2)" }}>idle</span>}
                                     {/* Reward calling indicator */}
@@ -1324,6 +1404,64 @@ export default function LivepeerDashboard() {
                         </table>
                       </div>
                     </GlassCard>
+
+                    {/* Cut history panel for clicked orchestrator */}
+                    {compareCutOrch && (
+                      <GlassCard glow="#ffb84d" style={{ padding: "28px 32px", marginTop: 16, position: "relative", overflow: "hidden" }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #ffb84d60, transparent)" }} />
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                            Cut History — {ensNames[compareCutOrch] || fmtAddr(compareCutOrch)}
+                          </div>
+                          <button
+                            onClick={() => { setCompareCutOrch(null); setCompareCutData(null); }}
+                            style={{ background: "none", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "rgba(255,255,255,0.4)", fontSize: 10, padding: "4px 10px", cursor: "pointer" }}
+                          >✕ Close</button>
+                        </div>
+                        {!compareCutData && (
+                          <div style={{ textAlign: "center", padding: "30px 0", color: "rgba(255,255,255,0.3)", fontSize: 12 }}>Loading cut history…</div>
+                        )}
+                        {compareCutData && compareCutData.length === 0 && (
+                          <div style={{ textAlign: "center", padding: "30px 0", color: "rgba(255,255,255,0.25)", fontSize: 12 }}>No cut changes recorded for this orchestrator.</div>
+                        )}
+                        {compareCutData && compareCutData.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginBottom: 16 }}>
+                              {compareCutData.length} changes · Current: Reward Cut {compareCutData[compareCutData.length - 1].rewardCut.toFixed(2)}% · Fee Share {compareCutData[compareCutData.length - 1].feeShare.toFixed(2)}%
+                            </div>
+                            <ResponsiveContainer width="100%" height={200}>
+                              <LineChart data={compareCutData}>
+                                <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                                <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 9, fontFamily: "Space Mono" }} axisLine={false} tickLine={false} width={45} tickFormatter={(v) => `${v}%`} />
+                                <Tooltip content={({ active, payload, label }) => {
+                                  if (!active || !payload?.length) return null;
+                                  return (
+                                    <div style={{ background: "rgba(6,6,14,0.97)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, padding: "12px 16px", boxShadow: "0 12px 40px rgba(0,0,0,0.6)" }}>
+                                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginBottom: 6, fontWeight: 600 }}>{label}</div>
+                                      {payload.map((p, i) => (
+                                        <div key={i} style={{ fontSize: 13, fontWeight: 700, color: p.color, fontFamily: "'Space Mono', monospace" }}>
+                                          {p.name}: {p.value.toFixed(2)}%
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                }} />
+                                <Line type="stepAfter" dataKey="rewardCut" name="Reward Cut" stroke="#ff6b9d" strokeWidth={2} dot={{ r: 3, fill: "#ff6b9d" }} />
+                                <Line type="stepAfter" dataKey="feeShare" name="Fee Share" stroke="#64a0ff" strokeWidth={2} dot={{ r: 3, fill: "#64a0ff" }} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                            <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 10 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                                <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
+                                <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </GlassCard>
+                    )}
                   </>
                 )}
               </>
