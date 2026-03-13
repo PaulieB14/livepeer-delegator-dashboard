@@ -128,6 +128,25 @@ function exportCSV(orchs, ensNames, simStake) {
   URL.revokeObjectURL(url);
 }
 
+// ── CoinGecko price fetch ──
+async function fetchCoinGeckoPrices() {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,livepeer&vs_currencies=usd&include_24hr_change=true"
+    );
+    const json = await res.json();
+    return {
+      ethUsd: json.ethereum?.usd || 0,
+      ethChange24h: json.ethereum?.usd_24h_change || 0,
+      lptUsd: json.livepeer?.usd || 0,
+      lptChange24h: json.livepeer?.usd_24h_change || 0,
+    };
+  } catch (e) {
+    console.warn("CoinGecko price fetch failed:", e);
+    return null;
+  }
+}
+
 const fmtAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—";
 const fmtD = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtM = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -238,6 +257,16 @@ export default function LivepeerDashboard() {
   const [simCustom, setSimCustom] = useState(false);
   const [networkData, setNetworkData] = useState(null);
   const [networkLoading, setNetworkLoading] = useState(false);
+  const [prices, setPrices] = useState(null);
+
+  // ── Fetch CoinGecko prices on mount + every 60s ──
+  useEffect(() => {
+    fetchCoinGeckoPrices().then((p) => p && setPrices(p));
+    const interval = setInterval(() => {
+      fetchCoinGeckoPrices().then((p) => p && setPrices(p));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ── URL param auto-load ──
   useEffect(() => {
@@ -702,13 +731,13 @@ export default function LivepeerDashboard() {
             {tab === "dash" && (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20, ...fadeStyle(50) }}>
-                  <StatCard label="Bonded Amount">
+                  <StatCard label="Bonded Amount" sub={prices ? `≈ $${fmtN(bondedAmount * prices.lptUsd, 2)} USD` : undefined}>
                     <AnimNum value={bondedAmount} suffix=" LPT" />
                   </StatCard>
-                  <StatCard label="Lifetime LPT Earned" sub={`${claims.length} claims across ${totalRounds} rounds`}>
+                  <StatCard label="Lifetime LPT Earned" sub={prices ? `≈ $${fmtN(earned * prices.lptUsd, 2)} USD · ${claims.length} claims across ${totalRounds} rounds` : `${claims.length} claims across ${totalRounds} rounds`}>
                     <AnimNum value={earned} suffix=" LPT" />
                   </StatCard>
-                  <StatCard label="Lifetime ETH Earned" color="#c77dff" sub={`${fmtN(data.withdrawnFees, 6)} withdrawn`}>
+                  <StatCard label="Lifetime ETH Earned" color="#c77dff" sub={prices ? `≈ $${fmtN(totalETH * prices.ethUsd, 2)} USD · ${fmtN(data.withdrawnFees, 6)} withdrawn` : `${fmtN(data.withdrawnFees, 6)} withdrawn`}>
                     <AnimNum value={totalETH} decimals={4} suffix=" ETH" />
                   </StatCard>
                 </div>
@@ -951,10 +980,19 @@ export default function LivepeerDashboard() {
                             { label: "Participation", value: `${(protocolData.participationRate * 100).toFixed(1)}%`, color: "#00e88c" },
                             { label: "Total Active Stake", value: `${fmtN(protocolData.totalActiveStake, 0)} LPT`, color: "#64a0ff" },
                             { label: "LPT/ETH", value: fmtN(protocolData.lptPriceEth, 6), color: "#c77dff" },
+                            ...(prices ? [
+                              { label: "ETH Price", value: `$${fmtN(prices.ethUsd, 2)}`, color: "#64a0ff", change: prices.ethChange24h },
+                              { label: "LPT Price", value: `$${fmtN(prices.lptUsd, 2)}`, color: "#00e88c", change: prices.lptChange24h },
+                            ] : []),
                           ].map((s) => (
                             <div key={s.label} style={{ textAlign: "center", padding: "4px 0" }}>
                               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600 }}>{s.label}</div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 4 }}>{s.value}</div>
+                              {s.change !== undefined && (
+                                <div style={{ fontSize: 10, marginTop: 2, color: s.change >= 0 ? "#00e88c" : "#ff5c5c", fontWeight: 600 }}>
+                                  {s.change >= 0 ? "▲" : "▼"} {Math.abs(s.change).toFixed(1)}% 24h
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -1236,14 +1274,24 @@ export default function LivepeerDashboard() {
                         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, rgba(199,125,255,0.3), rgba(255,184,77,0.3), rgba(0,232,140,0.3), transparent)" }} />
                         <div style={{ display: "flex", gap: 32, flexWrap: "wrap", justifyContent: "center" }}>
                           {[
-                            { label: "Total Network Fees", value: `${fmtN(protocolData.totalVolumeETH, 2)} ETH`, color: "#c77dff" },
+                            { label: "Total Network Fees", value: `${fmtN(protocolData.totalVolumeETH, 2)} ETH`, color: "#c77dff", sub: prices ? `≈ $${fmtN(protocolData.totalVolumeETH * prices.ethUsd, 0)}` : undefined },
                             { label: "Winning Tickets", value: fmtN(protocolData.winningTicketCount, 0), color: "#ffb84d" },
                             { label: "Active Broadcasters", value: networkData.broadcasters.filter((b) => b.eth30d > 0).length.toString(), color: "#00e88c" },
                             { label: "Delegators", value: fmtN(protocolData.delegatorsCount, 0), color: "#64a0ff" },
+                            ...(prices ? [
+                              { label: "ETH Price", value: `$${fmtN(prices.ethUsd, 2)}`, color: "#64a0ff", change: prices.ethChange24h },
+                              { label: "LPT Price", value: `$${fmtN(prices.lptUsd, 2)}`, color: "#00e88c", change: prices.lptChange24h },
+                            ] : []),
                           ].map((s) => (
                             <div key={s.label} style={{ textAlign: "center", padding: "4px 0" }}>
                               <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 600 }}>{s.label}</div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: s.color, fontFamily: "'Space Mono', monospace", marginTop: 4 }}>{s.value}</div>
+                              {s.sub && <div style={{ fontSize: 10, marginTop: 2, color: "rgba(255,255,255,0.3)" }}>{s.sub}</div>}
+                              {s.change !== undefined && (
+                                <div style={{ fontSize: 10, marginTop: 2, color: s.change >= 0 ? "#00e88c" : "#ff5c5c", fontWeight: 600 }}>
+                                  {s.change >= 0 ? "▲" : "▼"} {Math.abs(s.change).toFixed(1)}% 24h
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
