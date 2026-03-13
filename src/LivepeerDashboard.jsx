@@ -147,6 +147,22 @@ async function fetchCoinGeckoPrices() {
   }
 }
 
+async function fetchLptSparkline() {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/coins/livepeer/market_chart?vs_currency=usd&days=7"
+    );
+    const json = await res.json();
+    // Sample down to ~28 points (every 6th data point from hourly data)
+    const prices = json.prices || [];
+    const step = Math.max(1, Math.floor(prices.length / 28));
+    return prices.filter((_, i) => i % step === 0).map(([ts, price]) => ({ ts, price }));
+  } catch (e) {
+    console.warn("CoinGecko sparkline fetch failed:", e);
+    return null;
+  }
+}
+
 const fmtAddr = (a) => a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—";
 const fmtD = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtM = (ts) => new Date(ts * 1000).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
@@ -258,14 +274,20 @@ export default function LivepeerDashboard() {
   const [networkData, setNetworkData] = useState(null);
   const [networkLoading, setNetworkLoading] = useState(false);
   const [prices, setPrices] = useState(null);
+  const [lptSparkline, setLptSparkline] = useState(null);
 
   // ── Fetch CoinGecko prices on mount + every 60s ──
   useEffect(() => {
     fetchCoinGeckoPrices().then((p) => p && setPrices(p));
+    fetchLptSparkline().then((s) => s && setLptSparkline(s));
     const interval = setInterval(() => {
       fetchCoinGeckoPrices().then((p) => p && setPrices(p));
     }, 60000);
-    return () => clearInterval(interval);
+    // Refresh sparkline every 5 minutes
+    const sparkInterval = setInterval(() => {
+      fetchLptSparkline().then((s) => s && setLptSparkline(s));
+    }, 300000);
+    return () => { clearInterval(interval); clearInterval(sparkInterval); };
   }, []);
 
   // ── URL param auto-load ──
@@ -634,6 +656,51 @@ export default function LivepeerDashboard() {
 
       {/* Subtle top border glow */}
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg, transparent, rgba(0,232,140,0.15), rgba(100,160,255,0.15), rgba(199,125,255,0.15), transparent)", pointerEvents: "none", zIndex: 10 }} />
+
+      {/* ── Price ticker bar ── */}
+      {prices && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 20,
+          background: "rgba(6,6,14,0.85)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          padding: "8px 40px",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          {/* Left: ETH + LPT prices */}
+          <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+            {[
+              { symbol: "ETH", price: prices.ethUsd, change: prices.ethChange24h, color: "#64a0ff" },
+              { symbol: "LPT", price: prices.lptUsd, change: prices.lptChange24h, color: "#00e88c" },
+            ].map((t) => (
+              <div key={t.symbol} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: "0.08em" }}>{t.symbol}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: t.color, fontFamily: "'Space Mono', monospace" }}>${fmtN(t.price, 2)}</span>
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  color: t.change >= 0 ? "#00e88c" : "#ff5c5c",
+                  background: t.change >= 0 ? "rgba(0,232,140,0.08)" : "rgba(255,92,92,0.08)",
+                  padding: "2px 6px", borderRadius: 4,
+                }}>
+                  {t.change >= 0 ? "▲" : "▼"} {Math.abs(t.change).toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* Right: LPT 7-day sparkline */}
+          {lptSparkline && lptSparkline.length > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.25)", letterSpacing: "0.08em" }}>LPT 7D</span>
+              <LineChart width={120} height={32} data={lptSparkline}>
+                <Line
+                  type="monotone" dataKey="price"
+                  stroke={lptSparkline[lptSparkline.length - 1].price >= lptSparkline[0].price ? "#00e88c" : "#ff5c5c"}
+                  strokeWidth={1.5} dot={false}
+                />
+              </LineChart>
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "40px 40px", position: "relative", zIndex: 1, transition: "max-width 0.3s ease" }}>
         {/* Header */}
