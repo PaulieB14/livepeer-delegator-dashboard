@@ -878,13 +878,15 @@ export default function LivepeerDashboard() {
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Status</div>
                         <div style={{ fontSize: 13, color: del.active ? "#00e88c" : "#ff5c5c", fontWeight: 700 }}>{del.active ? "● Active" : "○ Inactive"}</div>
                       </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Reward Cut</div>
+                      <div title="The % of LPT inflation rewards the orchestrator keeps. Lower = more rewards for you.">
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Reward Cut ⓘ</div>
                         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontWeight: 600 }}>{(Number(del.rewardCut) / 10000).toFixed(2)}%</div>
+                        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>You keep {(100 - Number(del.rewardCut) / 10000).toFixed(2)}% of LPT rewards</div>
                       </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Fee Share</div>
+                      <div title="The % of ETH fees the orchestrator shares with delegators. Higher = more ETH for you.">
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Fee Share ⓘ</div>
                         <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", fontWeight: 600 }}>{(Number(del.feeShare) / 10000).toFixed(2)}%</div>
+                        <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>Your share of ETH transcoding fees</div>
                       </div>
                       <div>
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>Total Stake</div>
@@ -893,6 +895,14 @@ export default function LivepeerDashboard() {
                       <div>
                         <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 4, fontWeight: 600 }}>30d Fees</div>
                         <div style={{ fontSize: 13, color: "#c77dff", fontWeight: 700 }}>{fmtN(Number(del.thirtyDayVolumeETH), 4)} ETH</div>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(100,160,255,0.04)", borderRadius: 10, border: "1px solid rgba(100,160,255,0.08)" }}>
+                      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", lineHeight: 1.6 }}>
+                        <strong style={{ color: "rgba(255,255,255,0.5)" }}>How cuts affect your earnings:</strong>{" "}
+                        <span style={{ color: "#ff6b9d" }}>Reward Cut</span> is what the orchestrator keeps from LPT inflation — a 10% cut means you receive 90% of rewards proportional to your stake.{" "}
+                        <span style={{ color: "#64a0ff" }}>Fee Share</span> is the % of ETH transcoding fees passed to delegators — a 50% fee share means you receive 50% of fees proportional to your stake.{" "}
+                        Watch for sudden changes — orchestrators can update these at any time.
                       </div>
                     </div>
                   </GlassCard>
@@ -931,11 +941,14 @@ export default function LivepeerDashboard() {
                     </ResponsiveContainer>
                     <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                        <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut
+                        <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut (lower = more LPT for you)
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                        <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share
+                        <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share (higher = more ETH for you)
                       </div>
+                    </div>
+                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 8 }}>
+                      Stable lines are a good sign — frequent changes may indicate an unreliable orchestrator. A sudden reward cut increase or fee share decrease directly reduces your earnings.
                     </div>
                   </GlassCard>
                 )}
@@ -1452,11 +1465,14 @@ export default function LivepeerDashboard() {
                             </ResponsiveContainer>
                             <div style={{ display: "flex", gap: 20, justifyContent: "center", marginTop: 10 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                                <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut
+                                <div style={{ width: 12, height: 3, background: "#ff6b9d", borderRadius: 2 }} /> Reward Cut (lower = more LPT for you)
                               </div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "rgba(255,255,255,0.4)" }}>
-                                <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share
+                                <div style={{ width: 12, height: 3, background: "#64a0ff", borderRadius: 2 }} /> Fee Share (higher = more ETH for you)
                               </div>
+                            </div>
+                            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 8 }}>
+                              Stable lines are a good sign — frequent changes may indicate an unreliable orchestrator.
                             </div>
                           </>
                         )}
