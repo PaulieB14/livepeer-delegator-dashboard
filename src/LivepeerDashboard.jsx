@@ -285,6 +285,7 @@ export default function LivepeerDashboard() {
   const [orchSort, setOrchSort] = useState({ col: "rewardAPY", dir: "desc" });
   const [orchDetail, setOrchDetail] = useState(null);
   const [orchDetailLoading, setOrchDetailLoading] = useState(false);
+  const [orchSearchInput, setOrchSearchInput] = useState("");
   const [ensNames, setEnsNames] = useState({});
   const [protocolData, setProtocolData] = useState(null);
   const [simStake, setSimStake] = useState(0);
@@ -584,11 +585,20 @@ export default function LivepeerDashboard() {
   }, [orchData, networkData]);
 
   // ── Load orchestrator detail + delegator list ──
-  async function loadOrchDetail() {
-    if (!data?.delegate?.id) return;
+  async function loadOrchDetail(customAddr) {
+    const input = customAddr || data?.delegate?.id;
+    if (!input) return;
     setOrchDetailLoading(true);
+    setOrchDetail(null);
     try {
-      const orchId = data.delegate.id.toLowerCase();
+      let orchId = input.trim().toLowerCase();
+      // Resolve ENS if needed
+      if (orchId.endsWith(".eth")) {
+        orchId = await resolveENS(orchId);
+      }
+      if (!/^0x[a-f0-9]{40}$/.test(orchId)) {
+        throw new Error("Invalid address");
+      }
       const result = await gqlFetch(QUERIES.orchestratorDetail(orchId));
       const t = result.transcoder;
       if (!t) throw new Error("Orchestrator not found");
@@ -1599,6 +1609,33 @@ export default function LivepeerDashboard() {
             {/* ═══ ORCHESTRATOR TAB ═══ */}
             {tab === "orchestrator" && (
               <>
+                {/* Search bar */}
+                <div style={{ display: "flex", gap: 10, marginBottom: 20, alignItems: "center", ...fadeStyle(0) }}>
+                  <input
+                    type="text"
+                    placeholder="Paste orchestrator address or ENS (or leave empty for your current)"
+                    value={orchSearchInput}
+                    onChange={(e) => setOrchSearchInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") loadOrchDetail(orchSearchInput || undefined); }}
+                    style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: "#fff", fontSize: 13, fontFamily: "monospace", outline: "none" }}
+                  />
+                  <button
+                    onClick={() => loadOrchDetail(orchSearchInput || undefined)}
+                    disabled={orchDetailLoading}
+                    style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #6366f1, #8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: orchDetailLoading ? 0.5 : 1 }}
+                  >
+                    {orchDetailLoading ? "Loading..." : "View"}
+                  </button>
+                  {orchSearchInput && (
+                    <button
+                      onClick={() => { setOrchSearchInput(""); loadOrchDetail(); }}
+                      style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)", background: "transparent", color: "rgba(255,255,255,0.4)", fontSize: 12, cursor: "pointer" }}
+                    >
+                      My Orch
+                    </button>
+                  )}
+                </div>
+
                 {orchDetailLoading && (
                   <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.3)" }}>Loading orchestrator details...</div>
                 )}
