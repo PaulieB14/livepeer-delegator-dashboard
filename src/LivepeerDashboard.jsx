@@ -894,11 +894,28 @@ export default function LivepeerDashboard() {
                   <GlassCard glow="#ffb84d" style={{ padding: "28px 32px", display: "flex", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
                     <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #ffb84d60, transparent)" }} />
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Avg LPT / Round</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Est. Daily Earnings</div>
                       <div style={{ fontSize: 34, fontWeight: 800, color: "#ffb84d", fontFamily: "'Space Mono', monospace" }}>
-                        {totalRounds > 0 ? (earned / totalRounds).toFixed(2) : "—"}
+                        {(() => {
+                          // Use recent claims to estimate daily rate
+                          // Take last 30 days of claims for accuracy
+                          const now = Date.now() / 1000;
+                          const thirtyDaysAgo = now - 30 * 86400;
+                          const recentClaims = claims.filter(c => c.ts > thirtyDaysAgo);
+                          if (recentClaims.length >= 2) {
+                            const recentLPT = recentClaims.reduce((s, c) => s + c.lpt, 0);
+                            const span = (recentClaims[recentClaims.length - 1].ts - recentClaims[0].ts) / 86400;
+                            if (span > 0) return (recentLPT / span).toFixed(2);
+                          }
+                          // Fallback: estimate from total rewards / total delegation time
+                          if (claims.length >= 2) {
+                            const span = (claims[claims.length - 1].ts - claims[0].ts) / 86400;
+                            if (span > 0) return (totalRewards / span).toFixed(2);
+                          }
+                          return "—";
+                        })()}
                       </div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>≈ daily earning rate</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>LPT / day (based on recent claims)</div>
                     </div>
                   </GlassCard>
                 </div>
