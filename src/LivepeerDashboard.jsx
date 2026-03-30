@@ -428,8 +428,8 @@ export default function LivepeerDashboard() {
   }
 
   // ── Load orchestrator comparison data ──
-  async function loadOrchestrators() {
-    if (orchData) return;
+  async function loadOrchestrators(forceRefresh = false) {
+    if (orchData && !forceRefresh) return;
     setOrchLoading(true);
     try {
       const [tData, pData] = await Promise.all([
@@ -533,9 +533,18 @@ export default function LivepeerDashboard() {
     }
   }, [tab, data]);
 
+  // Auto-refresh orchestrator and network data every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (orchData) loadOrchestrators(true);
+      if (networkData) loadNetworkData(true);
+    }, 300000);
+    return () => clearInterval(interval);
+  }, [orchData, networkData]);
+
   // ── Load network/broadcaster data ──
-  async function loadNetworkData() {
-    if (networkData) return;
+  async function loadNetworkData(forceRefresh = false) {
+    if (networkData && !forceRefresh) return;
     setNetworkLoading(true);
     try {
       const fetches = [
