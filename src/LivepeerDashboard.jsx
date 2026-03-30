@@ -81,6 +81,17 @@ const QUERIES = {
       id timestamp rewardCut feeShare round { id }
     }
   }`,
+  orchestratorDetail: (id) => `{
+    transcoder(id: "${id}") {
+      id active totalStake rewardCut feeShare
+      thirtyDayVolumeETH sixtyDayVolumeETH ninetyDayVolumeETH totalVolumeETH
+      lastRewardRound { id }
+      serviceURI
+      delegators(first: 100, orderBy: bondedAmount, orderDirection: desc) {
+        id bondedAmount startRound lastClaimRound { id }
+      }
+    }
+  }`,
 };
 
 async function gqlFetch(query, subgraphId = LIVEPEER_SUBGRAPH_ID) {
@@ -272,6 +283,8 @@ export default function LivepeerDashboard() {
   const [orchLoading, setOrchLoading] = useState(false);
   const [orchFilter, setOrchFilter] = useState("working");
   const [orchSort, setOrchSort] = useState({ col: "rewardAPY", dir: "desc" });
+  const [orchDetail, setOrchDetail] = useState(null);
+  const [orchDetailLoading, setOrchDetailLoading] = useState(false);
   const [ensNames, setEnsNames] = useState({});
   const [protocolData, setProtocolData] = useState(null);
   const [simStake, setSimStake] = useState(0);
@@ -570,6 +583,50 @@ export default function LivepeerDashboard() {
     return () => clearInterval(interval);
   }, [orchData, networkData]);
 
+  // ── Load orchestrator detail + delegator list ──
+  async function loadOrchDetail() {
+    if (!data?.delegate?.id) return;
+    setOrchDetailLoading(true);
+    try {
+      const orchId = data.delegate.id.toLowerCase();
+      const result = await gqlFetch(QUERIES.orchestratorDetail(orchId));
+      const t = result.transcoder;
+      if (!t) throw new Error("Orchestrator not found");
+      // Resolve ENS for all delegators
+      const addrs = (t.delegators || []).map(d => d.id);
+      batchResolveENS(addrs).then(names => setEnsNames(prev => ({ ...prev, ...names })));
+      setOrchDetail({
+        id: t.id,
+        active: t.active,
+        totalStake: Number(t.totalStake),
+        rewardCut: Number(t.rewardCut) / 10000,
+        feeShare: Number(t.feeShare) / 10000,
+        eth30d: Number(t.thirtyDayVolumeETH),
+        eth60d: Number(t.sixtyDayVolumeETH),
+        eth90d: Number(t.ninetyDayVolumeETH),
+        totalETH: Number(t.totalVolumeETH),
+        lastRewardRound: t.lastRewardRound?.id,
+        serviceURI: t.serviceURI,
+        delegators: (t.delegators || []).map(d => ({
+          id: d.id,
+          bondedAmount: Number(d.bondedAmount),
+          startRound: d.startRound,
+          lastClaimRound: d.lastClaimRound?.id,
+        })).sort((a, b) => b.bondedAmount - a.bondedAmount),
+      });
+    } catch (err) {
+      console.error("Failed to load orchestrator detail:", err);
+    } finally {
+      setOrchDetailLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "orchestrator" && data?.delegate?.id && !orchDetail && !orchDetailLoading) {
+      loadOrchDetail();
+    }
+  }, [tab, data]);
+
   // ── Load network/broadcaster data ──
   async function loadNetworkData(forceRefresh = false) {
     if (networkData && !forceRefresh) return;
@@ -855,7 +912,7 @@ export default function LivepeerDashboard() {
           <>
             {/* Tab bar */}
             <div style={{ display: "flex", gap: 8, marginBottom: 28, ...fadeStyle(0), justifyContent: "center" }}>
-              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["compare", "Compare"], ["network", "Network"]].map(([k, l]) => (
+              {[["dash", "Dashboard"], ["earn", "Earnings"], ["hist", "History"], ["orchestrator", "Orchestrator"], ["compare", "Compare"], ["network", "Network"]].map(([k, l]) => (
                 <ChipTab key={k} label={l} active={tab === k} onClick={() => setTab(k)} />
               ))}
             </div>
@@ -1535,6 +1592,98 @@ export default function LivepeerDashboard() {
                       </GlassCard>
                     )}
                   </>
+                )}
+              </>
+            )}
+
+            {/* ═══ ORCHESTRATOR TAB ═══ */}
+            {tab === "orchestrator" && (
+              <>
+                {orchDetailLoading && (
+                  <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.3)" }}>Loading orchestrator details...</div>
+                )}
+                {orchDetail && (
+                  <div style={{ ...fadeStyle(0) }}>
+                    {/* Orchestrator Stats */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+                      <GlassCard>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Orchestrator</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#fff", wordBreak: "break-all" }}>{ensNames[orchDetail.id] || fmtAddr(orchDetail.id)}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", marginTop: 4, fontFamily: "monospace" }}>{orchDetail.id}</div>
+                        <div style={{ marginTop: 8, fontSize: 11, color: orchDetail.active ? "#00e88c" : "#ef4444" }}>{orchDetail.active ? "● Active" : "● Inactive"}</div>
+                      </GlassCard>
+                      <StatCard label="Total Stake">
+                        <AnimNum value={orchDetail.totalStake} suffix=" LPT" />
+                      </StatCard>
+                      <StatCard label="Reward Cut" color="#ff6b9d">
+                        {orchDetail.rewardCut.toFixed(2)}%
+                      </StatCard>
+                      <StatCard label="Fee Share" color="#ffb84d">
+                        {orchDetail.feeShare.toFixed(2)}%
+                      </StatCard>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 24 }}>
+                      <StatCard label="30d ETH Volume" color="#c77dff">
+                        <AnimNum value={orchDetail.eth30d} decimals={4} suffix=" ETH" />
+                      </StatCard>
+                      <StatCard label="60d ETH Volume" color="#c77dff">
+                        <AnimNum value={orchDetail.eth60d} decimals={4} suffix=" ETH" />
+                      </StatCard>
+                      <StatCard label="90d ETH Volume" color="#c77dff">
+                        <AnimNum value={orchDetail.eth90d} decimals={4} suffix=" ETH" />
+                      </StatCard>
+                      <StatCard label="Lifetime ETH" color="#c77dff">
+                        <AnimNum value={orchDetail.totalETH} decimals={4} suffix=" ETH" />
+                      </StatCard>
+                    </div>
+
+                    {/* Delegators List */}
+                    <GlassCard style={{ padding: 24, marginBottom: 24 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>Delegators ({orchDetail.delegators.length})</div>
+                        <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>Sorted by stake</div>
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              <th style={{ padding: "10px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>#</th>
+                              <th style={{ padding: "10px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Delegator</th>
+                              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Staked LPT</th>
+                              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>% of Total</th>
+                              <th style={{ padding: "10px 12px", textAlign: "right", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em" }}>Last Claim</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orchDetail.delegators.map((d, i) => {
+                              const pct = orchDetail.totalStake > 0 ? (d.bondedAmount / orchDetail.totalStake * 100) : 0;
+                              const isMe = d.id.toLowerCase() === data?.address?.toLowerCase();
+                              return (
+                                <tr key={d.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.03)", background: isMe ? "rgba(0,232,140,0.05)" : "transparent" }}>
+                                  <td style={{ padding: "10px 12px", color: "rgba(255,255,255,0.25)", fontFamily: "monospace" }}>{i + 1}</td>
+                                  <td style={{ padding: "10px 12px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                      {isMe && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(0,232,140,0.15)", color: "#00e88c", fontWeight: 700 }}>YOU</span>}
+                                      <span style={{ color: isMe ? "#00e88c" : "rgba(255,255,255,0.6)", fontFamily: "monospace", fontSize: 12 }}>
+                                        {ensNames[d.id] || fmtAddr(d.id)}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: "#fff", fontFamily: "'Space Mono', monospace" }}>{fmtN(d.bondedAmount)}</td>
+                                  <td style={{ padding: "10px 12px", textAlign: "right", color: "rgba(255,255,255,0.4)" }}>{pct.toFixed(2)}%</td>
+                                  <td style={{ padding: "10px 12px", textAlign: "right", color: "rgba(255,255,255,0.3)", fontFamily: "monospace", fontSize: 11 }}>Round {d.lastClaimRound || "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </GlassCard>
+                  </div>
+                )}
+                {!orchDetail && !orchDetailLoading && (
+                  <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.3)" }}>No orchestrator data — load a delegator first</div>
                 )}
               </>
             )}
