@@ -18,8 +18,8 @@ const QUERIES = {
       lastClaimRound { id }
     }
   }`,
-  earnings: (id) => `{
-    earningsClaimedEvents(where: { delegator: "${id}" }, orderBy: timestamp, orderDirection: asc, first: 100) {
+  earnings: (id, skip = 0) => `{
+    earningsClaimedEvents(where: { delegator: "${id}" }, orderBy: timestamp, orderDirection: asc, first: 1000, skip: ${skip}) {
       id timestamp startRound endRound { id } rewardTokens fees delegate { id }
     }
   }`,
@@ -324,16 +324,29 @@ export default function LivepeerDashboard() {
           throw new Error("Please enter a valid Ethereum address (0x...) or ENS name (.eth)");
         }
       }
-      const [delData, earnData, evtData] = await Promise.all([
+      const [delData, firstEarnData, evtData] = await Promise.all([
         gqlFetch(QUERIES.delegator(addr)),
-        gqlFetch(QUERIES.earnings(addr)),
+        gqlFetch(QUERIES.earnings(addr, 0)),
         gqlFetch(QUERIES.events(addr)),
       ]);
+
+      // Paginate earnings — fetch all claim events (1000 per page)
+      let allEarnings = firstEarnData.earningsClaimedEvents || [];
+      if (allEarnings.length === 1000) {
+        let skip = 1000;
+        while (true) {
+          const more = await gqlFetch(QUERIES.earnings(addr, skip));
+          const batch = more.earningsClaimedEvents || [];
+          allEarnings = allEarnings.concat(batch);
+          if (batch.length < 1000) break;
+          skip += 1000;
+        }
+      }
 
       if (!delData.delegator) throw new Error("No delegator found at this address. Make sure the wallet has delegated LPT on Livepeer (Arbitrum).");
 
       const del = delData.delegator;
-      const claims = (earnData.earningsClaimedEvents || []).map((c) => {
+      const claims = allEarnings.map((c) => {
         const startR = Number(c.startRound);
         const endR = Number(c.endRound.id);
         const rounds = Math.max(endR - startR + 1, 1);
