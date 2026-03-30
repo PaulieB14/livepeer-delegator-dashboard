@@ -392,16 +392,31 @@ export default function LivepeerDashboard() {
       });
       events.sort((a, b) => a.ts - b.ts);
 
+      // Calculate total rewards: claimed + pending (unclaimed)
+      const claimedLPT = claims.reduce((s, c) => s + c.lpt, 0);
+      // Principal = total bonded - total unbonded - total withdrawn
+      const totalBonded = (evtData.bondEvents || []).reduce((s, e) => s + Number(e.additionalAmount), 0);
+      const totalUnbonded = (evtData.unbondEvents || []).reduce((s, e) => s + Number(e.amount), 0);
+      const totalWithdrawn = (evtData.withdrawStakeEvents || []).reduce((s, e) => s + Number(e.amount), 0);
+      const netDeposited = totalBonded - totalUnbonded - totalWithdrawn;
+      // Total rewards = current bonded amount - net deposited principal
+      // (bondedAmount grows as rewards auto-compound)
+      const bondedAmt = Number(del.bondedAmount);
+      const totalRewards = Math.max(0, bondedAmt - Math.max(0, netDeposited));
+      const pendingRewards = Math.max(0, totalRewards - claimedLPT);
+
       setData({
         address: addr,
         delegator: del,
         claims,
         events,
-        bondedAmount: Number(del.bondedAmount),
+        bondedAmount: bondedAmt,
         totalFees: Number(del.fees),
         withdrawnFees: Number(del.withdrawnFees),
         delegate: del.delegate,
-        earned: claims.reduce((s, c) => s + c.lpt, 0),
+        earned: claimedLPT,
+        totalRewards,
+        pendingRewards,
         totalETH: claims.reduce((s, c) => s + c.eth, 0),
         totalRounds: claims.reduce((s, c) => s + c.rounds, 0),
       });
@@ -659,11 +674,13 @@ export default function LivepeerDashboard() {
   // ── Derived data ──
   const claims = data?.claims || [];
   const earned = data?.earned || 0;
+  const totalRewards = data?.totalRewards || 0;
+  const pendingRewards = data?.pendingRewards || 0;
   const totalETH = data?.totalETH || 0;
   const totalRounds = data?.totalRounds || 0;
   const bondedAmount = data?.bondedAmount || 0;
-  const principal = bondedAmount - earned;
-  const roi = bondedAmount > 0 ? ((earned / Math.max(principal, 1)) * 100) : 0;
+  const principal = bondedAmount - totalRewards;
+  const roi = bondedAmount > 0 ? ((totalRewards / Math.max(principal, 1)) * 100) : 0;
   const del = data?.delegate;
 
   let cumData = [];
@@ -850,8 +867,8 @@ export default function LivepeerDashboard() {
                   <StatCard label="Bonded Amount" sub={prices ? `≈ $${fmtN(bondedAmount * prices.lptUsd, 2)} USD` : undefined}>
                     <AnimNum value={bondedAmount} suffix=" LPT" />
                   </StatCard>
-                  <StatCard label="Lifetime LPT Earned" sub={prices ? `≈ $${fmtN(earned * prices.lptUsd, 2)} USD · ${claims.length} claims across ${totalRounds} rounds` : `${claims.length} claims across ${totalRounds} rounds`}>
-                    <AnimNum value={earned} suffix=" LPT" />
+                  <StatCard label="Total LPT Rewards" sub={prices ? `≈ $${fmtN(totalRewards * prices.lptUsd, 2)} USD · ${fmtN(earned)} claimed + ${fmtN(pendingRewards)} pending` : `${fmtN(earned)} claimed + ${fmtN(pendingRewards)} pending`}>
+                    <AnimNum value={totalRewards} suffix=" LPT" />
                   </StatCard>
                   <StatCard label="Lifetime ETH Earned" color="#c77dff" sub={prices ? `≈ $${fmtN(totalETH * prices.ethUsd, 2)} USD · ${fmtN(data.withdrawnFees, 6)} withdrawn` : `${fmtN(data.withdrawnFees, 6)} withdrawn`}>
                     <AnimNum value={totalETH} decimals={4} suffix=" ETH" />
@@ -862,7 +879,7 @@ export default function LivepeerDashboard() {
                   <GlassCard glow="#00e88c" style={{ padding: "28px 32px", display: "flex", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
                     <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #00e88c60, transparent)" }} />
                     <PieChart width={90} height={90}>
-                      <Pie data={[{ v: earned }, { v: Math.max(principal, 0) }]} dataKey="v" cx={45} cy={45} innerRadius={28} outerRadius={42} startAngle={90} endAngle={-270} strokeWidth={0}>
+                      <Pie data={[{ v: totalRewards }, { v: Math.max(principal, 0) }]} dataKey="v" cx={45} cy={45} innerRadius={28} outerRadius={42} startAngle={90} endAngle={-270} strokeWidth={0}>
                         <Cell fill="#00e88c" />
                         <Cell fill="rgba(255,255,255,0.06)" />
                       </Pie>
