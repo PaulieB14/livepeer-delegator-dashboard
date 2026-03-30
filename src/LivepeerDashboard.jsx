@@ -870,7 +870,7 @@ export default function LivepeerDashboard() {
                   <StatCard label="Total LPT Rewards" sub={prices ? `≈ $${fmtN(totalRewards * prices.lptUsd, 2)} USD · ${fmtN(earned)} claimed + ${fmtN(pendingRewards)} pending` : `${fmtN(earned)} claimed + ${fmtN(pendingRewards)} pending`}>
                     <AnimNum value={totalRewards} suffix=" LPT" />
                   </StatCard>
-                  <StatCard label="Lifetime ETH Earned" color="#c77dff" sub={prices ? `≈ $${fmtN(totalETH * prices.ethUsd, 2)} USD · ${fmtN(data.withdrawnFees, 6)} withdrawn` : `${fmtN(data.withdrawnFees, 6)} withdrawn`}>
+                  <StatCard label="Lifetime ETH Earned" color="#c77dff" sub={`${fmtN(data.withdrawnFees, 6)} withdrawn · ${fmtN(data.totalFees - data.withdrawnFees, 6)} pending${prices ? ` · ≈ $${fmtN(totalETH * prices.ethUsd, 2)} USD` : ""}`}>
                     <AnimNum value={totalETH} decimals={4} suffix=" ETH" />
                   </StatCard>
                 </div>
