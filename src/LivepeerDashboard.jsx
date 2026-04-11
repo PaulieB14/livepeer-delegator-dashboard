@@ -98,6 +98,7 @@ async function gqlFetch(query, subgraphId = LIVEPEER_SUBGRAPH_ID) {
   const res = await fetch(graphUrl(subgraphId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    cache: "no-store",
     body: JSON.stringify({ query }),
   });
   const json = await res.json();
