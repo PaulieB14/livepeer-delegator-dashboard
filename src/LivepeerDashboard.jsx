@@ -11,6 +11,7 @@ const QUERIES = {
     delegator(id: "${id}") {
       id
       bondedAmount
+      principal
       fees
       withdrawnFees
       startRound
@@ -409,15 +410,10 @@ export default function LivepeerDashboard() {
 
       // Calculate total rewards: claimed + pending (unclaimed)
       const claimedLPT = claims.reduce((s, c) => s + c.lpt, 0);
-      // Principal = total bonded - total unbonded - total withdrawn
-      const totalBonded = (evtData.bondEvents || []).reduce((s, e) => s + Number(e.additionalAmount), 0);
-      const totalUnbonded = (evtData.unbondEvents || []).reduce((s, e) => s + Number(e.amount), 0);
-      const totalWithdrawn = (evtData.withdrawStakeEvents || []).reduce((s, e) => s + Number(e.amount), 0);
-      const netDeposited = totalBonded - totalUnbonded - totalWithdrawn;
-      // Total rewards = current bonded amount - net deposited principal
-      // (bondedAmount grows as rewards auto-compound)
       const bondedAmt = Number(del.bondedAmount);
-      const totalRewards = Math.max(0, bondedAmt - Math.max(0, netDeposited));
+      const principal = Number(del.principal);
+      // Total rewards = current bonded amount - principal (tracked by subgraph)
+      const totalRewards = Math.max(0, bondedAmt - principal);
       const pendingRewards = Math.max(0, totalRewards - claimedLPT);
 
       setData({
@@ -426,6 +422,7 @@ export default function LivepeerDashboard() {
         claims,
         events,
         bondedAmount: bondedAmt,
+        principal,
         totalFees: Number(del.fees),
         withdrawnFees: Number(del.withdrawnFees),
         delegate: del.delegate,
@@ -747,7 +744,7 @@ export default function LivepeerDashboard() {
   const totalETH = data?.totalETH || 0;
   const totalRounds = data?.totalRounds || 0;
   const bondedAmount = data?.bondedAmount || 0;
-  const principal = bondedAmount - totalRewards;
+  const principal = data?.principal || 0;
   const roi = bondedAmount > 0 ? ((totalRewards / Math.max(principal, 1)) * 100) : 0;
   const del = data?.delegate;
 
