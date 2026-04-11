@@ -6,6 +6,26 @@ const LIVEPEER_SUBGRAPH_ID = import.meta.env.VITE_LIVEPEER_SUBGRAPH_ID;
 const ENS_SUBGRAPH_ID = import.meta.env.VITE_ENS_SUBGRAPH_ID;
 const graphUrl = (id) => `https://gateway.thegraph.com/api/${API_KEY}/subgraphs/id/${id}`;
 
+const ARB_RPC = "https://arb1.arbitrum.io/rpc";
+const BONDING_MANAGER = "0x35bcf3c30594191d53231e4ff333e8a770453e40";
+
+// Fetch live pendingStake and pendingFees from BondingManager contract
+async function fetchPendingStakeAndFees(delegatorAddr, currentRound) {
+  const addr = delegatorAddr.slice(2).padStart(64, "0");
+  const round = BigInt(currentRound).toString(16).padStart(64, "0");
+  // pendingStake(address,uint256) selector: 0x9d0b2c7a
+  const stakeData = "0x9d0b2c7a" + addr + round;
+  // pendingFees(address,uint256) selector: 0xf595f1cc
+  const feesData = "0xf595f1cc" + addr + round;
+  const call = (data) => fetch(ARB_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: BONDING_MANAGER, data }, "latest"] }),
+  }).then((r) => r.json()).then((j) => Number(BigInt(j.result)) / 1e18);
+  const [stake, fees] = await Promise.all([call(stakeData), call(feesData)]);
+  return { stake, fees };
+}
+
 const QUERIES = {
   delegator: (id) => `{
     delegator(id: "${id}") {
@@ -340,10 +360,11 @@ export default function LivepeerDashboard() {
           throw new Error("Please enter a valid Ethereum address (0x...) or ENS name (.eth)");
         }
       }
-      const [delData, firstEarnData, evtData] = await Promise.all([
+      const [delData, firstEarnData, evtData, protoData] = await Promise.all([
         gqlFetch(QUERIES.delegator(addr)),
         gqlFetch(QUERIES.earnings(addr, 0)),
         gqlFetch(QUERIES.events(addr)),
+        gqlFetch(QUERIES.protocol),
       ]);
 
       // Paginate earnings — fetch all claim events (1000 per page)
@@ -408,11 +429,12 @@ export default function LivepeerDashboard() {
       });
       events.sort((a, b) => a.ts - b.ts);
 
-      // Calculate total rewards: claimed + pending (unclaimed)
+      // Fetch live balances from BondingManager contract
+      const currentRound = protoData.protocol.currentRound.id;
+      const live = await fetchPendingStakeAndFees(addr, currentRound);
       const claimedLPT = claims.reduce((s, c) => s + c.lpt, 0);
-      const bondedAmt = Number(del.bondedAmount);
+      const bondedAmt = live.stake;
       const principal = Number(del.principal);
-      // Total rewards = current bonded amount - principal (tracked by subgraph)
       const totalRewards = Math.max(0, bondedAmt - principal);
       const pendingRewards = Math.max(0, totalRewards - claimedLPT);
 
@@ -423,7 +445,7 @@ export default function LivepeerDashboard() {
         events,
         bondedAmount: bondedAmt,
         principal,
-        totalFees: Number(del.fees),
+        totalFees: live.fees,
         withdrawnFees: Number(del.withdrawnFees),
         delegate: del.delegate,
         earned: claimedLPT,
