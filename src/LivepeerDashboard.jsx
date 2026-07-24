@@ -1007,6 +1007,50 @@ export default function LivepeerDashboard() {
             {/* ═══ DASHBOARD TAB ═══ */}
             {tab === "dash" && (
               <>
+                {/* ── Your position hero: the money at a glance ── */}
+                <GlassCard glow="#00e88c" style={{ padding: "28px 32px", marginBottom: 20, position: "relative", overflow: "hidden", ...fadeStyle(0) }}>
+                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, transparent, #00e88c60, transparent)" }} />
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Your position</div>
+                      <div style={{ fontSize: 36, fontWeight: 800, color: "#fff", fontFamily: "'Space Mono', monospace", lineHeight: 1.15 }}>{fmtN(bondedAmount)} <span style={{ fontSize: 18, color: "rgba(255,255,255,0.4)" }}>LPT staked</span></div>
+                      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>
+                        {prices ? `≈ $${fmtN(bondedAmount * prices.lptUsd, 0)} · ` : ""}
+                        <span style={{ color: "#00e88c" }}>+{fmtN(totalRewards)} LPT rewards ({roi.toFixed(0)}% ROI)</span>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      {withdrawableNow > 0 && (
+                        <div style={{ padding: "12px 18px", borderRadius: 12, background: "rgba(255,107,157,0.12)", border: "1px solid rgba(255,107,157,0.35)" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#ff6b9d", textTransform: "uppercase", letterSpacing: "0.1em" }}>⚡ Ready to withdraw</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: "#ff6b9d", fontFamily: "'Space Mono', monospace" }}>{fmtN(withdrawableNow)} LPT</div>
+                        </div>
+                      )}
+                      {rewardRel && (
+                        <div style={{ padding: "12px 18px", borderRadius: 12, background: `${relColor}1f`, border: `1px solid ${relColor}55` }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: relColor, textTransform: "uppercase", letterSpacing: "0.1em" }}>Orchestrator reliability</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: relColor, fontFamily: "'Space Mono', monospace" }}>{rewardRel.pct}% <span style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>{rewardRel.called}/30</span></div>
+                        </div>
+                      )}
+                      {pendingUnbond > 0 && (
+                        <div style={{ padding: "12px 18px", borderRadius: 12, background: "rgba(255,184,77,0.1)", border: "1px solid rgba(255,184,77,0.3)" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#ffb84d", textTransform: "uppercase", letterSpacing: "0.1em" }}>Still unbonding</div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: "#ffb84d", fontFamily: "'Space Mono', monospace" }}>{fmtN(pendingUnbond)} LPT</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 16, fontSize: 13, color: "rgba(255,255,255,0.6)", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 14 }}>
+                    {(() => {
+                      const bits = [];
+                      if (withdrawableNow > 0) bits.push(`${fmtN(withdrawableNow)} LPT has finished unbonding and is sitting idle — withdraw or rebond it so it isn't earning nothing.`);
+                      if (rewardRel && rewardRel.pct < 90) bits.push(`Your orchestrator missed ${30 - rewardRel.called} of the last 30 reward rounds${rewardRel.pct < 70 ? " — you're losing rewards; consider switching." : "."}`);
+                      if (!bits.length) bits.push("Your stake is working — your orchestrator is calling reward reliably and nothing needs your attention.");
+                      return bits.join(" ");
+                    })()}
+                  </div>
+                </GlassCard>
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20, ...fadeStyle(50) }}>
                   <StatCard label="Bonded Amount" sub={prices ? `≈ $${fmtN(bondedAmount * prices.lptUsd, 2)} USD` : undefined}>
                     <AnimNum value={bondedAmount} suffix=" LPT" />
