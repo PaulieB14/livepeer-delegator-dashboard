@@ -32,11 +32,14 @@ const QUERIES = {
       id
       bondedAmount
       principal
+      unbonded
+      delegatedAmount
       fees
       withdrawnFees
       startRound
       delegate { id totalStake rewardCut feeShare active lastRewardRound { id } serviceURI thirtyDayVolumeETH ninetyDayVolumeETH }
       lastClaimRound { id }
+      unbondingLocks { id unbondingLockId amount withdrawRound delegate { id } }
     }
   }`,
   earnings: (id, skip = 0) => `{
@@ -445,6 +448,15 @@ export default function LivepeerDashboard() {
         events,
         bondedAmount: bondedAmt,
         principal,
+        unbonded: Number(del.unbonded || 0),
+        delegatedAmount: Number(del.delegatedAmount || 0),
+        currentRound: Number(currentRound),
+        unbondingLocks: (del.unbondingLocks || []).map((l) => ({
+          id: l.id,
+          lockId: l.unbondingLockId,
+          amount: Number(l.amount),
+          withdrawRound: Number(l.withdrawRound),
+        })).filter((l) => l.amount > 0).sort((a, b) => a.withdrawRound - b.withdrawRound),
         totalFees: live.fees,
         withdrawnFees: Number(del.withdrawnFees),
         delegate: del.delegate,
@@ -768,6 +780,12 @@ export default function LivepeerDashboard() {
   const bondedAmount = data?.bondedAmount || 0;
   const principal = data?.principal || 0;
   const roi = bondedAmount > 0 ? ((totalRewards / Math.max(principal, 1)) * 100) : 0;
+  // ── Unbonding / withdrawals (new granular subgraph data) ──
+  const unbondingLocks = data?.unbondingLocks || [];
+  const dashCurrentRound = data?.currentRound || 0;
+  const withdrawableNow = unbondingLocks.filter((l) => l.withdrawRound <= dashCurrentRound).reduce((s, l) => s + l.amount, 0);
+  const pendingUnbond = unbondingLocks.filter((l) => l.withdrawRound > dashCurrentRound).reduce((s, l) => s + l.amount, 0);
+  const lifetimeUnbonded = data?.unbonded || 0;
   const del = data?.delegate;
 
   let cumData = [];
@@ -961,6 +979,45 @@ export default function LivepeerDashboard() {
                     <AnimNum value={totalETH} decimals={4} suffix=" ETH" />
                   </StatCard>
                 </div>
+
+                {unbondingLocks.length > 0 && (
+                  <GlassCard glow={withdrawableNow > 0 ? "#ff6b9d" : "#64a0ff"} style={{ padding: "24px 32px", marginBottom: 20, position: "relative", overflow: "hidden", ...fadeStyle(100) }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${withdrawableNow > 0 ? "#ff6b9d" : "#64a0ff"}60, transparent)` }} />
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Unbonding & Withdrawals</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)" }}>current round {dashCurrentRound}</div>
+                    </div>
+                    {withdrawableNow > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 10, background: "rgba(255,107,157,0.1)", border: "1px solid rgba(255,107,157,0.3)", marginBottom: 16 }}>
+                        <span style={{ fontSize: 22 }}>⚡</span>
+                        <div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: "#ff6b9d", fontFamily: "'Space Mono', monospace" }}>{fmtN(withdrawableNow)} LPT ready to withdraw</div>
+                          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Finished unbonding and sitting idle — withdraw it or rebond so it isn't earning nothing.</div>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {unbondingLocks.map((l) => {
+                        const ready = l.withdrawRound <= dashCurrentRound;
+                        const roundsLeft = Math.max(0, l.withdrawRound - dashCurrentRound);
+                        return (
+                          <div key={l.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 8, background: "rgba(255,255,255,0.03)" }}>
+                            <span style={{ fontFamily: "'Space Mono', monospace", fontWeight: 700, color: "#fff" }}>{fmtN(l.amount)} LPT</span>
+                            {ready ? (
+                              <span style={{ fontSize: 13, fontWeight: 700, color: "#00e88c" }}>✓ Withdrawable now</span>
+                            ) : (
+                              <span style={{ fontSize: 13, color: "#ffb84d" }}>unlocks round {l.withdrawRound} · ~{roundsLeft} {roundsLeft === 1 ? "day" : "days"}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 24, marginTop: 16, fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+                      <span>Pending unbond: <b style={{ color: "#fff" }}>{fmtN(pendingUnbond)} LPT</b></span>
+                      <span>Lifetime unbonded: <b style={{ color: "#fff" }}>{fmtN(lifetimeUnbonded)} LPT</b></span>
+                    </div>
+                  </GlassCard>
+                )}
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 20, ...fadeStyle(150) }}>
                   <GlassCard glow="#00e88c" style={{ padding: "28px 32px", display: "flex", alignItems: "center", gap: 24, position: "relative", overflow: "hidden" }}>
