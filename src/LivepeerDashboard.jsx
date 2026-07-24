@@ -546,6 +546,23 @@ export default function LivepeerDashboard() {
         delegatorsCount: Number(protocol.delegatorsCount),
       });
 
+      // Reward-call reliability over the last 30 rounds for ALL orchestrators —
+      // one batch scan of RewardEvents (paginated), grouped by delegate.
+      const relWindow = 30;
+      const sinceR = Number(currentRoundId) - relWindow;
+      const relByDelegate = {};
+      try {
+        for (let skip = 0; skip <= 4000; skip += 1000) {
+          const rr = await gqlFetch(`{ rewardEvents(orderBy: timestamp, orderDirection: desc, first: 1000, skip: ${skip}) { delegate { id } round { id } } }`);
+          const evs = rr?.rewardEvents || [];
+          for (const e of evs) {
+            const rnd = Number(e.round.id);
+            if (rnd > sinceR) (relByDelegate[e.delegate.id] ||= new Set()).add(rnd);
+          }
+          if (evs.length < 1000 || Number(evs[evs.length - 1]?.round.id) <= sinceR) break;
+        }
+      } catch { /* best-effort — reliability just shows as unknown */ }
+
       const orchs = tData.transcoders.map((t) => {
         const stake = Number(t.totalStake);
         const rewardCut = Number(t.rewardCut);
@@ -579,6 +596,8 @@ export default function LivepeerDashboard() {
           isWorking: eth30d > 0,
           lastRewardRound: t.lastRewardRound?.id,
           callingReward: t.lastRewardRound?.id === currentRoundId,
+          reliableRounds: relByDelegate[t.id]?.size || 0,
+          reliability: Math.round(((relByDelegate[t.id]?.size || 0) / relWindow) * 100),
           sparkline: null,
         };
       });
@@ -1622,10 +1641,17 @@ export default function LivepeerDashboard() {
                                     >{orchDisplay(o.id)}</span>
                                     {isCurrent && <span style={{ marginLeft: 8, fontSize: 8, fontWeight: 700, color: "#00e88c", background: "rgba(0,232,140,0.15)", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>yours</span>}
                                     {!o.isWorking && <span style={{ marginLeft: 6, fontSize: 8, color: "rgba(255,255,255,0.2)" }}>idle</span>}
-                                    {/* Reward calling indicator */}
-                                    <span style={{ marginLeft: 6, fontSize: 7, color: o.callingReward ? "#00e88c" : "#ff5c5c", verticalAlign: "middle" }} title={o.callingReward ? "Calling reward this round" : "Not calling reward"}>
-                                      {o.callingReward ? "●" : "○"}
-                                    </span>
+                                    {/* Reward-call reliability over the last 30 rounds */}
+                                    {typeof o.reliability === "number" && (
+                                      <span
+                                        title={`Called reward in ${o.reliableRounds} of the last 30 rounds — missed rounds pay delegators no LPT reward`}
+                                        style={{ marginLeft: 6, fontSize: 8, fontWeight: 700, fontFamily: "'Space Mono', monospace", verticalAlign: "middle", padding: "2px 6px", borderRadius: 4,
+                                          color: o.reliability >= 90 ? "#00e88c" : o.reliability >= 70 ? "#ffb84d" : "#ff5c5c",
+                                          background: o.reliability >= 90 ? "rgba(0,232,140,0.12)" : o.reliability >= 70 ? "rgba(255,184,77,0.12)" : "rgba(255,92,92,0.12)" }}
+                                      >
+                                        {o.reliability}%
+                                      </span>
+                                    )}
                                   </td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: "#00e88c", fontWeight: 700 }}>{o.rewardAPY.toFixed(2)}%</td>
                                   <td style={{ padding: "12px 10px", textAlign: "right", color: o.eth30d > 0 ? "#c77dff" : "rgba(255,255,255,0.15)" }}>{o.eth30d > 0 ? fmtN(o.eth30d, 4) : "0"}</td>
