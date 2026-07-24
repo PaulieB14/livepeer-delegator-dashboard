@@ -42,6 +42,11 @@ const QUERIES = {
       unbondingLocks { id unbondingLockId amount withdrawRound delegate { id } }
     }
   }`,
+  rewardCalls: (id) => `{
+    rewardEvents(where: { delegate: "${id}" }, orderBy: timestamp, orderDirection: desc, first: 40) {
+      round { id }
+    }
+  }`,
   earnings: (id, skip = 0) => `{
     earningsClaimedEvents(where: { delegator: "${id}" }, orderBy: timestamp, orderDirection: asc, first: 1000, skip: ${skip}) {
       id timestamp startRound endRound { id } rewardTokens fees delegate { id }
@@ -435,6 +440,18 @@ export default function LivepeerDashboard() {
       // Fetch live balances from BondingManager contract
       const currentRound = protoData.protocol.currentRound.id;
       const live = await fetchPendingStakeAndFees(addr, currentRound);
+      // Reward-call reliability of the delegate over the last 30 rounds — a
+      // missed round means delegators earned no inflationary reward that round.
+      let rewardReliability = null;
+      if (del.delegate?.id) {
+        try {
+          const rc = await gqlFetch(QUERIES.rewardCalls(del.delegate.id.toLowerCase()));
+          const cur = Number(currentRound);
+          const W = 30;
+          const called = new Set((rc?.rewardEvents || []).map((e) => Number(e.round.id)).filter((r) => r > cur - W && r <= cur));
+          rewardReliability = { called: called.size, window: W, pct: Math.round((called.size / W) * 100) };
+        } catch { /* best-effort */ }
+      }
       const claimedLPT = claims.reduce((s, c) => s + c.lpt, 0);
       const bondedAmt = live.stake;
       const principal = Number(del.principal);
@@ -451,6 +468,7 @@ export default function LivepeerDashboard() {
         unbonded: Number(del.unbonded || 0),
         delegatedAmount: Number(del.delegatedAmount || 0),
         currentRound: Number(currentRound),
+        rewardReliability,
         unbondingLocks: (del.unbondingLocks || []).map((l) => ({
           id: l.id,
           lockId: l.unbondingLockId,
@@ -786,6 +804,8 @@ export default function LivepeerDashboard() {
   const withdrawableNow = unbondingLocks.filter((l) => l.withdrawRound <= dashCurrentRound).reduce((s, l) => s + l.amount, 0);
   const pendingUnbond = unbondingLocks.filter((l) => l.withdrawRound > dashCurrentRound).reduce((s, l) => s + l.amount, 0);
   const lifetimeUnbonded = data?.unbonded || 0;
+  const rewardRel = data?.rewardReliability;
+  const relColor = rewardRel ? (rewardRel.pct >= 90 ? "#00e88c" : rewardRel.pct >= 70 ? "#ffb84d" : "#ff5c7c") : "#64a0ff";
   const del = data?.delegate;
 
   let cumData = [];
@@ -1015,6 +1035,27 @@ export default function LivepeerDashboard() {
                     <div style={{ display: "flex", gap: 24, marginTop: 16, fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
                       <span>Pending unbond: <b style={{ color: "#fff" }}>{fmtN(pendingUnbond)} LPT</b></span>
                       <span>Lifetime unbonded: <b style={{ color: "#fff" }}>{fmtN(lifetimeUnbonded)} LPT</b></span>
+                    </div>
+                  </GlassCard>
+                )}
+
+                {rewardRel && (
+                  <GlassCard glow={relColor} style={{ padding: "24px 32px", marginBottom: 20, position: "relative", overflow: "hidden", display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap", ...fadeStyle(120) }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${relColor}60, transparent)` }} />
+                    <div style={{ minWidth: 96 }}>
+                      <div style={{ fontSize: 40, fontWeight: 800, color: relColor, fontFamily: "'Space Mono', monospace", lineHeight: 1 }}>{rewardRel.pct}%</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 4 }}>{rewardRel.called}/{rewardRel.window} rounds</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 240 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.35)", textTransform: "uppercase", letterSpacing: "0.12em" }}>Orchestrator reward-call reliability</div>
+                      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginTop: 6, maxWidth: 480 }}>
+                        Your orchestrator called reward in <b style={{ color: "#fff" }}>{rewardRel.called} of the last {rewardRel.window} rounds</b>.
+                        {rewardRel.pct >= 90
+                          ? " Rock solid — you're earning inflationary rewards every round."
+                          : rewardRel.pct >= 70
+                          ? " A few misses — each missed round earned you no LPT reward."
+                          : " Frequent misses — you're leaving rewards on the table. Consider a more reliable orchestrator."}
+                      </div>
                     </div>
                   </GlassCard>
                 )}
