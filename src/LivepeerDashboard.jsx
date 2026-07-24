@@ -84,6 +84,7 @@ const QUERIES = {
       lptPriceEth
     }
   }`,
+  recentRounds: `{ rounds(first: 2, orderBy: startTimestamp, orderDirection: desc) { startTimestamp } }`,
   broadcasters: `{
     broadcasters(first: 20, orderBy: thirtyDayVolumeETH, orderDirection: desc) {
       id deposit reserve totalVolumeETH totalVolumeUSD
@@ -455,7 +456,11 @@ export default function LivepeerDashboard() {
       const claimedLPT = claims.reduce((s, c) => s + c.lpt, 0);
       const bondedAmt = live.stake;
       const principal = Number(del.principal);
-      const totalRewards = Math.max(0, bondedAmt - principal);
+      // Lifetime rewards = current stake − lifetime principal deposited + lifetime
+      // unbonded. Without the `+ unbonded` term, any account that has unbonded
+      // reads 0 rewards, because current stake drops below cumulative principal.
+      const lifetimeUnbondedAmt = Number(del.unbonded || 0);
+      const totalRewards = Math.max(0, bondedAmt - principal + lifetimeUnbondedAmt);
       const pendingRewards = Math.max(0, totalRewards - claimedLPT);
 
       setData({
@@ -524,14 +529,23 @@ export default function LivepeerDashboard() {
     if (orchData && !forceRefresh) return;
     setOrchLoading(true);
     try {
-      const [tData, pData] = await Promise.all([
+      const [tData, pData, rData] = await Promise.all([
         gqlFetch(QUERIES.transcoders),
         gqlFetch(QUERIES.protocol),
+        gqlFetch(QUERIES.recentRounds),
       ]);
       const protocol = pData.protocol;
       const mintable = Number(protocol.currentRound.mintableTokens);
       const totalActive = Number(protocol.totalActiveStake);
       const currentRoundId = protocol.currentRound.id;
+      // Rounds per year from the ACTUAL round length. A Livepeer round is ~21.4h
+      // (not 24h), so there are ~410 rounds/year, not 365 — hardcoding 365 made
+      // every APY ~11% too low. Derived live from the last two round timestamps.
+      const rr = rData?.rounds || [];
+      const secPerRound = (rr.length >= 2 && Number(rr[0].startTimestamp) > Number(rr[1].startTimestamp))
+        ? Number(rr[0].startTimestamp) - Number(rr[1].startTimestamp)
+        : 76950;
+      const roundsPerYear = 31557600 / secPerRound;
 
       setProtocolData({
         inflation: Number(protocol.inflation),
@@ -575,7 +589,7 @@ export default function LivepeerDashboard() {
         // Reward APY: per-round delegator yield, annualized
         const baseYield = totalActive > 0 ? mintable / totalActive : 0;
         const delegatorYield = baseYield * (1 - rewardCut / 1000000);
-        const rewardAPY = delegatorYield * 365 * 100;
+        const rewardAPY = delegatorYield * roundsPerYear * 100;
 
         // ETH yield: delegator share of 30d fees, per LPT staked, annualized
         const delegatorFees30d = eth30d * (feeShare / 1000000);
