@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, ScatterChart, Scatter, LineChart, Line } from "recharts";
 
-const API_KEY = import.meta.env.VITE_GRAPH_API_KEY;
-const LIVEPEER_SUBGRAPH_ID = import.meta.env.VITE_LIVEPEER_SUBGRAPH_ID;
-const ENS_SUBGRAPH_ID = import.meta.env.VITE_ENS_SUBGRAPH_ID;
-const graphUrl = (id) => `https://gateway.thegraph.com/api/${API_KEY}/subgraphs/id/${id}`;
+// Queries go through the /api/graph serverless proxy so the Graph API key never ships to the browser.
+const LIVEPEER_SUBGRAPH_ID = "livepeer";
+const ENS_SUBGRAPH_ID = "ens";
+const graphUrl = (sg) => `${import.meta.env.BASE_URL}api/graph?sg=${sg}`;
 
 const ARB_RPC = "https://arb1.arbitrum.io/rpc";
 const BONDING_MANAGER = "0x35bcf3c30594191d53231e4ff333e8a770453e40";
@@ -154,7 +154,7 @@ async function batchResolveENS(addresses) {
         if (!names[addr] || d.name.length < names[addr].length) names[addr] = d.name;
       }
     });
-  } catch (e) { /* ENS resolution is best-effort */ }
+  } catch { /* ENS resolution is best-effort */ }
   return names;
 }
 
