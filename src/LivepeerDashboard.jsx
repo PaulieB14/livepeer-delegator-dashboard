@@ -301,6 +301,40 @@ const StatCard = ({ label, children, sub, color = "#00e88c" }) => (
 // ════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════
+// Public on-chain example delegators (Arbitrum), for visitors without a wallet.
+const SAMPLE_WALLETS = [
+  { label: "Large delegator", address: "0x1f5fa305abcc49e014d1dbfc4ed68befad403688" },
+  { label: "Mid-size delegator", address: "0x06b7f3303a07ea17327c3b89e68eccf283ff3ab6" },
+  { label: "Small delegator", address: "0xf16affcf3646a744a370fc76230ff0021b0ee64c" },
+  { label: "Orchestrator (self-delegated)", address: "0x9c5874aa481b9c652d5420d65ce8becaad9ff3a7" },
+];
+
+function SampleWallets({ onPick, disabled, center = false }) {
+  return (
+    <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: center ? "center" : "flex-start" }}>
+      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>No wallet? Try a sample:</span>
+      {SAMPLE_WALLETS.map((w) => (
+        <button
+          key={w.address}
+          onClick={() => onPick(w.address)}
+          disabled={disabled}
+          title={`Public on-chain example: ${w.address}`}
+          style={{
+            padding: "6px 12px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+            background: "rgba(0,232,140,0.06)", border: "1px solid rgba(0,232,140,0.2)",
+            color: "#00e88c", cursor: disabled ? "wait" : "pointer", transition: "all 0.2s",
+          }}
+        >
+          {w.label}
+        </button>
+      ))}
+      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.2)", flexBasis: "100%", textAlign: center ? "center" : "left" }}>
+        Public on-chain examples, not affiliated with this site.
+      </span>
+    </div>
+  );
+}
+
 export default function LivepeerDashboard() {
   const [wallet, setWallet] = useState("");
   const [inputVal, setInputVal] = useState("");
@@ -350,6 +384,14 @@ export default function LivepeerDashboard() {
     const addr = params.get("address") || params.get("wallet");
     if (addr) { setInputVal(addr); loadDelegator(addr); }
   }, []);
+
+  function pickSample(addr) {
+    setInputVal(addr);
+    const url = new URL(window.location.href);
+    url.searchParams.set("wallet", addr);
+    window.history.replaceState(null, "", url);
+    loadDelegator(addr);
+  }
 
   // ── Load data ──
   async function loadDelegator(address) {
@@ -979,6 +1021,7 @@ export default function LivepeerDashboard() {
               {loading ? "Loading…" : "Load Dashboard"}
             </button>
           </div>
+          <SampleWallets onPick={pickSample} disabled={loading} />
           {error && (
             <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(255,92,92,0.08)", border: "1px solid rgba(255,92,92,0.15)", borderRadius: 8, color: "#ff5c5c", fontSize: 12 }}>
               {error}
